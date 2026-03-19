@@ -1,0 +1,51 @@
+// ============================================================================
+// TELEGRAM ИНТЕГРАЦИЯ
+// ============================================================================
+
+model TelegramGroup {
+  id String @id @default(cuid())
+
+  studentId String         @unique
+  student   StudentProfile @relation(fields: [studentId], references: [id])
+
+  telegramChatId String @unique // ID чата/группы в Telegram
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  notifications TelegramNotification[]
+
+  @@map("telegram_groups")
+}
+
+enum NotificationType {
+  LESSON_REPORT
+  LESSON_RESCHEDULE
+  LESSON_CANCEL
+  RESCHEDULE_REQUEST
+  MATERIAL_ADDED
+  PAYOUT_NOTIFICATION
+}
+
+model TelegramNotification {
+  id String @id @default(cuid())
+
+  groupId String
+  group   TelegramGroup @relation(fields: [groupId], references: [id])
+
+  type    NotificationType
+  payload Json             // произвольные данные уведомления
+
+  telegramMessageId String? // ID отправленного сообщения в Telegram
+  sentAt            DateTime?
+  error             String?  // ошибка отправки, если была
+
+  createdAt DateTime @default(now())
+
+  @@index([groupId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("telegram_notifications")
+}

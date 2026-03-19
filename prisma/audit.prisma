@@ -1,0 +1,26 @@
+// ============================================================================
+// ЖУРНАЛ ДЕЙСТВИЙ
+// ============================================================================
+
+model AuditLog {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  action      String // "lesson.completed", "payment.created", и т.д.
+  entityType  String // "Lesson", "Payment", "User", ...
+  entityId    String
+  details     Json?  // diff / дополнительная информация
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

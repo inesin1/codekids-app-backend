@@ -1,0 +1,142 @@
+// ============================================================================
+// ПОЛЬЗОВАТЕЛИ И РОЛИ
+// ============================================================================
+
+enum Role {
+  ADMIN
+  MANAGER
+  TEACHER
+  PARENT
+  STUDENT
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  phone     String?
+  password  String
+  firstName String
+  lastName  String
+  role      Role
+  isActive  Boolean  @default(true)
+  avatarUrl String?
+
+  telegramChatId String? @unique // для прямых уведомлений пользователю
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Ролевые профили (заполняется один, в зависимости от role)
+  teacherProfile TeacherProfile?
+  parentProfile  ParentProfile?
+  studentProfile StudentProfile?
+
+  // Общие связи
+  auditLogs         AuditLog[]
+  rescheduleRequestsCreated RescheduleRequest[] @relation("RescheduleCreatedBy")
+  rescheduleRequestsResolved RescheduleRequest[] @relation("RescheduleResolvedBy")
+
+  @@index([role])
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Профиль преподавателя
+// ---------------------------------------------------------------------------
+model TeacherProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Связки «преподаватель — ученик» с индивидуальными ставками
+  enrollments      Enrollment[]
+  scheduleTemplates ScheduleTemplate[]
+  lessons          Lesson[]
+  payouts          Payout[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("teacher_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// Профиль родителя
+// ---------------------------------------------------------------------------
+model ParentProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Баланс (в рублях, может быть отрицательным = задолженность)
+  balance Decimal @default(0) @db.Decimal(12, 2)
+
+  // 1 родитель → N учеников
+  students     StudentProfile[]
+  payments     Payment[]
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("parent_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// Профиль ученика
+// ---------------------------------------------------------------------------
+model StudentProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  parentId String
+  parent   ParentProfile @relation(fields: [parentId], references: [id])
+
+  age   Int?
+  grade String? // класс / уровень
+
+  enrollments       Enrollment[]
+  scheduleTemplates ScheduleTemplate[]
+  lessons           Lesson[]
+  telegramGroup     TelegramGroup?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([parentId])
+  @@map("student_profiles")
+}
+
+// ============================================================================
+// СВЯЗКА ПРЕПОДАВАТЕЛЬ ↔ УЧЕНИК
+// Хранит индивидуальные ставки
+// ============================================================================
+model Enrollment {
+  id String @id @default(cuid())
+
+  teacherId String
+  teacher   TeacherProfile @relation(fields: [teacherId], references: [id])
+
+  studentId String
+  student   StudentProfile @relation(fields: [studentId], references: [id])
+
+  // Индивидуальная стоимость занятия для родителя (списание)
+  lessonPrice Decimal @db.Decimal(10, 2)
+
+  // Индивидуальная ставка преподавателя за занятие (начисление)
+  teacherRate Decimal @db.Decimal(10, 2)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scheduleTemplates ScheduleTemplate[]
+  lessons           Lesson[]
+
+  @@unique([teacherId, studentId])
+  @@index([teacherId])
+  @@index([studentId])
+  @@map("enrollments")
+}
