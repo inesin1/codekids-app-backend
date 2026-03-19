@@ -9,6 +9,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { Role } from '../../../generated/client';
+import { Roles } from '../../common/auth/decorators/roles.decorator';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { CreateStudentDto } from './dto/create-student.dto';
@@ -19,21 +20,25 @@ import { UpdateUserDto } from './dto/update-user.dto';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @Roles(Role.ADMIN, Role.MANAGER)
   @Post('teachers')
   createTeacher(@Body() dto: CreateUserDto) {
     return this.usersService.createTeacher(dto);
   }
 
+  @Roles(Role.ADMIN, Role.MANAGER)
   @Post('parents')
   createParent(@Body() dto: CreateUserDto) {
     return this.usersService.createParent(dto);
   }
 
+  @Roles(Role.ADMIN, Role.MANAGER)
   @Post('students')
   createStudent(@Body() dto: CreateStudentDto) {
     return this.usersService.createStudent(dto);
   }
 
+  @Roles(Role.ADMIN)
   @Post('staff')
   createStaff(@Body() dto: CreateStaffDto) {
     return this.usersService.createStaff(dto);
