@@ -1,0 +1,206 @@
+// ============================================================================
+// РАСПИСАНИЕ
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// Шаблон расписания — регулярное занятие (напр. каждый Вт в 16:00)
+// У ученика может быть несколько шаблонов с разными преподавателями
+// ---------------------------------------------------------------------------
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+model ScheduleTemplate {
+  id String @id @default(cuid())
+
+  enrollmentId String
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id])
+
+  teacherId String
+  teacher   TeacherProfile @relation(fields: [teacherId], references: [id])
+
+  studentId String
+  student   StudentProfile @relation(fields: [studentId], references: [id])
+
+  dayOfWeek       DayOfWeek
+  startTime       String       // "16:00" — время начала (HH:mm)
+  durationMinutes Int          @default(60)
+
+  isActive Boolean @default(true)
+
+  lessons Lesson[] // занятия, сгенерированные по этому шаблону
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([teacherId])
+  @@index([studentId])
+  @@index([dayOfWeek])
+  @@map("schedule_templates")
+}
+
+// ---------------------------------------------------------------------------
+// Конкретное занятие (сгенерированное или разовое)
+// ---------------------------------------------------------------------------
+
+enum LessonStatus {
+  SCHEDULED   // запланировано
+  COMPLETED   // проведено
+  CANCELED   // отменено
+  RESCHEDULED // перенесено (создано новое занятие)
+}
+
+model Lesson {
+  id String @id @default(cuid())
+
+  // Из какого шаблона сгенерировано (null если разовое)
+  templateId String?
+  template   ScheduleTemplate? @relation(fields: [templateId], references: [id])
+
+  enrollmentId String
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id])
+
+  teacherId String
+  teacher   TeacherProfile @relation(fields: [teacherId], references: [id])
+
+  studentId String
+  student   StudentProfile @relation(fields: [studentId], references: [id])
+
+  // Дата и время
+  scheduledAt     DateTime // точная дата и время начала
+  durationMinutes Int      @default(60)
+
+  status LessonStatus @default(SCHEDULED)
+
+  // Фиксируем цену и ставку на момент проведения
+  price       Decimal? @db.Decimal(10, 2) // списано с родителя
+  teacherRate Decimal? @db.Decimal(10, 2) // начислено преподавателю
+
+  completedAt DateTime? // когда преподаватель отметил «проведено»
+
+  // Ссылка на перенесённое занятие (если это оригинал, который перенесли)
+  rescheduledToId String? @unique
+  rescheduledTo   Lesson? @relation("LessonReschedule", fields: [rescheduledToId], references: [id])
+  rescheduledFrom Lesson? @relation("LessonReschedule")
+
+  report             LessonReport?
+  materials          Material[]
+  rescheduleRequests RescheduleRequest[]
+  transaction        Transaction?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([teacherId])
+  @@index([studentId])
+  @@index([scheduledAt])
+  @@index([status])
+  @@index([enrollmentId])
+  @@map("lessons")
+}
+
+// ============================================================================
+// ОТЧЁТ ПО ЗАНЯТИЮ
+// ============================================================================
+
+model LessonReport {
+  id String @id @default(cuid())
+
+  lessonId String @unique
+  lesson   Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  topic           String  // тема занятия
+  covered         String  @db.Text // что изучили
+  results         String  @db.Text // результаты
+  parentComment   String? @db.Text // комментарий для родителя
+  homework        String? @db.Text // домашнее задание
+  recommendations String? @db.Text // рекомендации
+  extraNotes      String? @db.Text // доп. комментарии
+
+  // Премия за быстрый отчёт (в течение 24 ч)
+  bonusApplied Boolean  @default(false)
+  bonusAmount  Decimal? @db.Decimal(10, 2)
+
+  sentToTelegram Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("lesson_reports")
+}
+
+// ============================================================================
+// МАТЕРИАЛЫ
+// ============================================================================
+
+model Material {
+  id String @id @default(cuid())
+
+  lessonId String?
+  lesson   Lesson? @relation(fields: [lessonId], references: [id])
+
+  title    String
+  fileUrl  String
+  fileType String? // "pdf", "zip", "link" и т.д.
+  fileSize Int?    // размер в байтах
+
+  uploadedAt DateTime @default(now())
+
+  @@index([lessonId])
+  @@map("materials")
+}
+
+// ============================================================================
+// ПЕРЕНОС / ОТМЕНА ЗАНЯТИЙ
+// ============================================================================
+
+enum RescheduleRequestType {
+  RESCHEDULE
+  CANCEL
+}
+
+enum RescheduleRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model RescheduleRequest {
+  id String @id @default(cuid())
+
+  lessonId String
+  lesson   Lesson @relation(fields: [lessonId], references: [id])
+
+  type   RescheduleRequestType
+  reason String? @db.Text
+
+  // Кто создал заявку (преподаватель или родитель)
+  createdById String
+  createdBy   User @relation("RescheduleCreatedBy", fields: [createdById], references: [id])
+
+  // Предлагаемая новая дата (только для RESCHEDULE)
+  proposedDate DateTime?
+
+  status RescheduleRequestStatus @default(PENDING)
+
+  // Кто подтвердил/отклонил
+  resolvedById String?
+  resolvedBy   User?    @relation("RescheduleResolvedBy", fields: [resolvedById], references: [id])
+  resolvedAt   DateTime?
+
+  sentToTelegram Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([lessonId])
+  @@index([status])
+  @@map("reschedule_requests")
+}

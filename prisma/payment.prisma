@@ -1,0 +1,93 @@
+// ============================================================================
+// ФИНАНСЫ
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// Оплата от родителя (ручное пополнение администратором)
+// ---------------------------------------------------------------------------
+
+model Payment {
+  id String @id @default(cuid())
+
+  parentId String
+  parent   ParentProfile @relation(fields: [parentId], references: [id])
+
+  amount      Decimal @db.Decimal(12, 2) // сумма пополнения
+  description String? // комментарий
+  paidAt      DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  @@index([parentId])
+  @@index([paidAt])
+  @@map("payments")
+}
+
+// ---------------------------------------------------------------------------
+// Транзакция — автоматическое списание с родителя при проведении занятия
+// ---------------------------------------------------------------------------
+
+enum TransactionType {
+  LESSON_CHARGE  // списание за занятие
+  MANUAL_TOPUP   // ручное пополнение
+  ADJUSTMENT     // корректировка
+}
+
+model Transaction {
+  id String @id @default(cuid())
+
+  parentId String
+  parent   ParentProfile @relation(fields: [parentId], references: [id])
+
+  lessonId String? @unique
+  lesson   Lesson? @relation(fields: [lessonId], references: [id])
+
+  type   TransactionType
+  amount Decimal         @db.Decimal(12, 2) // + пополнение, − списание
+
+  balanceBefore Decimal @db.Decimal(12, 2)
+  balanceAfter  Decimal @db.Decimal(12, 2)
+
+  description String?
+
+  createdAt DateTime @default(now())
+
+  @@index([parentId])
+  @@index([createdAt])
+  @@map("transactions")
+}
+
+// ---------------------------------------------------------------------------
+// Выплата преподавателю
+// ---------------------------------------------------------------------------
+
+enum PayoutStatus {
+  PENDING // начислено
+  PAID    // выплачено
+}
+
+model Payout {
+  id String @id @default(cuid())
+
+  teacherId String
+  teacher   TeacherProfile @relation(fields: [teacherId], references: [id])
+
+  // Период выплаты
+  periodStart DateTime
+  periodEnd   DateTime
+
+  basePay   Decimal @db.Decimal(12, 2) // сумма за занятия (ставки)
+  bonusPay  Decimal @default(0) @db.Decimal(12, 2) // сумма премий за быстрые отчёты
+  totalPay  Decimal @db.Decimal(12, 2) // итого
+
+  status PayoutStatus @default(PENDING)
+  paidAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([teacherId])
+  @@index([status])
+  @@index([periodStart, periodEnd])
+  @@map("payouts")
+}
