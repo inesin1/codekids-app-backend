@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { HealthController } from './health.controller';
 import { AuthModule } from './modules/common/auth/auth.module';
 import { PrismaModule } from './modules/common/prisma/prisma.module';
+import { UsersModule } from './modules/core/users/users.module';
 import { ValidationModule } from './modules/common/validation/validation.module';
 
 const commonModules = [
@@ -13,8 +14,10 @@ const commonModules = [
   }),
 ];
 
+const coreModules = [UsersModule];
+
 @Module({
-  imports: [...commonModules],
+  imports: [...commonModules, ...coreModules],
   controllers: [HealthController],
 })
 export class AppModule {}
