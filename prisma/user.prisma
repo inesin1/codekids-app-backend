@@ -32,6 +32,7 @@ model User {
   studentProfile StudentProfile?
 
   // Общие связи
+  refreshTokens     RefreshToken[]
   auditLogs         AuditLog[]
   rescheduleRequestsCreated RescheduleRequest[] @relation("RescheduleCreatedBy")
   rescheduleRequestsResolved RescheduleRequest[] @relation("RescheduleResolvedBy")
@@ -112,6 +113,21 @@ model StudentProfile {
 // СВЯЗКА ПРЕПОДАВАТЕЛЬ ↔ УЧЕНИК
 // Хранит индивидуальные ставки
 // ============================================================================
+// ---------------------------------------------------------------------------
+// Refresh-токены (JWT rotation)
+// ---------------------------------------------------------------------------
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
 model Enrollment {
   id String @id @default(cuid())
 
