@@ -21,7 +21,10 @@ export class AuthService {
       throw new UnauthorizedException('Неверный email или пароль');
     }
 
-    return this.generateTokens(user.id, user.role);
+    const { password: _password, ...safeUser } = user;
+    const tokens = await this.generateTokens(user.id, user.role);
+
+    return { ...tokens, user: safeUser };
   }
 
   async refresh(refreshToken: string) {
@@ -48,7 +51,10 @@ export class AuthService {
 
     await this.prisma.refreshToken.delete({ where: { id: stored.id } });
 
-    return this.generateTokens(user.id, user.role);
+    const { password: _password, ...safeUser } = user;
+    const tokens = await this.generateTokens(user.id, user.role);
+
+    return { ...tokens, user: safeUser };
   }
 
   async logout(refreshToken: string) {

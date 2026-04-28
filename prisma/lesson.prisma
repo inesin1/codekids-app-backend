@@ -3,8 +3,7 @@
 // ============================================================================
 
 // ---------------------------------------------------------------------------
-// Шаблон расписания — регулярное занятие (напр. каждый Вт в 16:00)
-// У ученика может быть несколько шаблонов с разными преподавателями
+// Шаблон расписания — набор регулярных слотов для связки ученик/преподаватель
 // ---------------------------------------------------------------------------
 
 enum DayOfWeek {
@@ -29,12 +28,9 @@ model ScheduleTemplate {
   studentId String
   student   StudentProfile @relation(fields: [studentId], references: [id])
 
-  dayOfWeek       DayOfWeek
-  startTime       String       // "16:00" — время начала (HH:mm)
-  durationMinutes Int          @default(60)
-
   isActive Boolean @default(true)
 
+  slots   ScheduleTemplateSlot[]
   lessons Lesson[] // занятия, сгенерированные по этому шаблону
 
   createdAt DateTime @default(now())
@@ -42,8 +38,29 @@ model ScheduleTemplate {
 
   @@index([teacherId])
   @@index([studentId])
-  @@index([dayOfWeek])
+  @@index([isActive])
   @@map("schedule_templates")
+}
+
+model ScheduleTemplateSlot {
+  id String @id @default(cuid())
+
+  templateId String
+  template   ScheduleTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  dayOfWeek       DayOfWeek
+  startTime       String // "16:00" — время начала (HH:mm)
+  durationMinutes Int       @default(60)
+  isActive        Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([templateId])
+  @@index([dayOfWeek])
+  @@index([isActive])
+  @@index([templateId, isActive])
+  @@map("schedule_template_slots")
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +120,7 @@ model Lesson {
   @@index([scheduledAt])
   @@index([status])
   @@index([enrollmentId])
+  @@index([templateId, scheduledAt])
   @@map("lessons")
 }
 

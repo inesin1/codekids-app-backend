@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
 } from '@nestjs/common';
 import { Role } from '../../../generated/client';
 import { Roles } from '../../common/auth/decorators/roles.decorator';
@@ -15,6 +16,10 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import {
+  ListStudentsQueryDto,
+  ListUsersQueryDto,
+} from './dto/list-users-query.dto';
 
 @Controller('users')
 export class UsersController {
@@ -47,6 +52,32 @@ export class UsersController {
   @Get()
   findAll(@Query('role') role?: Role) {
     return this.usersService.findAll(role);
+  }
+
+  @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER)
+  @Get('students')
+  async findAllStudents(
+    @Req() req: Express.Request,
+    @Query() query: ListStudentsQueryDto,
+  ) {
+    if (req.user!.role === Role.TEACHER) {
+      query.teacherId = await this.usersService.getTeacherProfileIdByUserId(
+        req.user!.id,
+      );
+    }
+    return this.usersService.findAllStudents(query);
+  }
+
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @Get('parents')
+  findAllParents(@Query() query: ListUsersQueryDto) {
+    return this.usersService.findAllParents(query);
+  }
+
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @Get('teachers')
+  findAllTeachers(@Query() query: ListUsersQueryDto) {
+    return this.usersService.findAllTeachers(query);
   }
 
   @Get(':id')

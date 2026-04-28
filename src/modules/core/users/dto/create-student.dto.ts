@@ -3,7 +3,7 @@ import { CreateUserDto } from './create-user.dto';
 
 export class CreateStudentDto extends CreateUserDto {
   @IsString()
-  parentId: string;
+  parentUserId: string;
 
   @IsOptional()
   @IsInt()

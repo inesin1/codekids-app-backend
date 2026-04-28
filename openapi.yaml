@@ -1,0 +1,1737 @@
+openapi: 3.0.3
+
+info:
+  title: CodeKids App API
+  description: API для онлайн-школы программирования для детей
+  version: 1.1.0
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+
+tags:
+  - name: Health
+  - name: Auth
+  - name: Users
+  - name: Enrollments
+  - name: Lessons
+  - name: Schedule Templates
+  - name: Reports
+  - name: Materials
+  - name: Reschedule Requests
+  - name: Payouts
+
+paths:
+  # ── Health ──────────────────────────────────────────────────────────────────
+  /check:
+    get:
+      tags: [Health]
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+
+  # ── Auth ────────────────────────────────────────────────────────────────────
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginDto'
+      responses:
+        '200':
+          description: Tokens + user data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshDto'
+      responses:
+        '200':
+          description: New token pair
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid refresh token
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout (revoke refresh token)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshDto'
+      responses:
+        '204':
+          description: Logged out
+
+  # ── Users ───────────────────────────────────────────────────────────────────
+  /users/teachers:
+    post:
+      tags: [Users]
+      summary: Create teacher
+      description: 'Roles: ADMIN, MANAGER'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserDto'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    get:
+      tags: [Users]
+      summary: List teachers
+      description: 'Roles: ADMIN, MANAGER'
+      parameters:
+        - name: q
+          in: query
+          description: Поиск по firstName/lastName/email (case-insensitive)
+          schema:
+            type: string
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TeacherListItem'
+
+  /users/parents:
+    post:
+      tags: [Users]
+      summary: Create parent
+      description: 'Roles: ADMIN, MANAGER'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserDto'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    get:
+      tags: [Users]
+      summary: List parents
+      description: 'Roles: ADMIN, MANAGER'
+      parameters:
+        - name: q
+          in: query
+          description: Поиск по firstName/lastName/email (case-insensitive)
+          schema:
+            type: string
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ParentListItem'
+
+  /users/students:
+    post:
+      tags: [Users]
+      summary: Create student
+      description: 'Roles: ADMIN, MANAGER'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStudentDto'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    get:
+      tags: [Users]
+      summary: List students
+      description: |
+        Roles: ADMIN, MANAGER (все), TEACHER (только свои — `teacherId` из query
+        игнорируется, принудительно подставляется teacherProfile.id текущего пользователя).
+      parameters:
+        - name: q
+          in: query
+          description: Поиск по firstName/lastName/email (case-insensitive)
+          schema:
+            type: string
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
+        - name: teacherId
+          in: query
+          description: Только ученики этого учителя (ADMIN/MANAGER)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StudentListItem'
+
+  /users/staff:
+    post:
+      tags: [Users]
+      summary: Create staff (admin/manager)
+      description: 'Roles: ADMIN'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStaffDto'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /users:
+    get:
+      tags: [Users]
+      summary: List users (raw, без профилей)
+      description: |
+        Базовый админский список. Для доменных таблиц используй
+        `/users/students`, `/users/parents`, `/users/teachers`.
+      parameters:
+        - name: role
+          in: query
+          schema:
+            $ref: '#/components/schemas/Role'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+
+  /users/{id}:
+    get:
+      tags: [Users]
+      summary: Get user by ID
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          description: Not found
+
+    patch:
+      tags: [Users]
+      summary: Update user
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserDto'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+    delete:
+      tags: [Users]
+      summary: Delete user
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  # ── Enrollments ─────────────────────────────────────────────────────────────
+  /enrollments:
+    post:
+      tags: [Enrollments]
+      summary: Create enrollment (teacher↔student binding)
+      description: 'Roles: ADMIN, MANAGER'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEnrollmentDto'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Enrollment'
+        '409':
+          description: Enrollment already exists for this teacher+student
+
+    get:
+      tags: [Enrollments]
+      summary: List enrollments
+      parameters:
+        - name: teacherId
+          in: query
+          schema:
+            type: string
+        - name: studentId
+          in: query
+          schema:
+            type: string
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Enrollment'
+
+  /enrollments/{id}:
+    get:
+      tags: [Enrollments]
+      summary: Get enrollment by ID
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Enrollment'
+
+    patch:
+      tags: [Enrollments]
+      summary: Update enrollment
+      description: 'Roles: ADMIN, MANAGER'
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEnrollmentDto'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Enrollment'
+
+  # ── Lessons ─────────────────────────────────────────────────────────────────
+  /lessons/generate:
+    post:
+      tags: [Lessons]
+      summary: Generate lessons from active schedule templates (7 days ahead)
+      description: 'Roles: ADMIN, MANAGER'
+      responses:
+        '201':
+          description: Generation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created:
+                    type: integer
+
+  /lessons:
+    post:
+      tags: [Lessons]
+      summary: Create a one-off lesson
+      description: 'Roles: ADMIN, MANAGER'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLessonDto'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lesson'
+
+    get:
+      tags: [Lessons]
+      summary: List lessons (role-scoped)
+      description: |
+        ADMIN/MANAGER — all lessons.
+        TEACHER — own lessons.
+        PARENT — children's lessons.
+        STUDENT — own lessons.
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/LessonStatus'
+        - name: teacherId
+          in: query
+          schema:
+            type: string
+        - name: studentId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Lesson'
+
+  /lessons/{id}:
+    get:
+      tags: [Lessons]
+      summary: Get lesson by ID
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lesson'
+
+  /lessons/{id}/complete:
+    post:
+      tags: [Lessons]
+      summary: Mark lesson as completed
+      description: |
+        Roles: ADMIN, MANAGER, TEACHER.
+        Teacher can only complete own lessons.
+        Charges parent balance and records financial transaction.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lesson'
+        '400':
+          description: Lesson is not in SCHEDULED status
+
+  /lessons/{id}/cancel:
+    post:
+      tags: [Lessons]
+      summary: Cancel lesson
+      description: 'Roles: ADMIN, MANAGER'
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lesson'
+        '400':
+          description: Lesson is not in SCHEDULED status
+
+  /lessons/{id}/reschedule:
+    post:
+      tags: [Lessons]
+      summary: Reschedule lesson to a new date
+      description: 'Roles: ADMIN, MANAGER. Creates a new lesson and marks original as RESCHEDULED.'
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RescheduleLessonDto'
+      responses:
+        '200':
+          description: Rescheduled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lesson'
+
+  # ── Schedule Templates ─────────────────────────────────────────────────────
+  /schedule-templates:
+    post:
+      tags: [Schedule Templates]
+      summary: Create schedule template
+      description: 'Roles: ADMIN, MANAGER'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScheduleTemplateDto'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleTemplate'
+
+    get:
+      tags: [Schedule Templates]
+      summary: List schedule templates
+      parameters:
+        - name: teacherId
+          in: query
+          schema:
+            type: string
+        - name: studentId
+          in: query
+          schema:
+            type: string
+        - name: dayOfWeek
+          in: query
+          description: Return templates that contain at least one slot on this day.
+          schema:
+            $ref: '#/components/schemas/DayOfWeek'
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScheduleTemplate'
+
+  /schedule-templates/{id}:
+    get:
+      tags: [Schedule Templates]
+      summary: Get schedule template by ID
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleTemplate'
+
+    patch:
+      tags: [Schedule Templates]
+      summary: Update schedule template
+      description: 'Roles: ADMIN, MANAGER'
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateScheduleTemplateDto'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleTemplate'
+
+    delete:
+      tags: [Schedule Templates]
+      summary: Deactivate schedule template
+      description: 'Roles: ADMIN, MANAGER. Sets isActive=false (soft delete).'
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleTemplate'
+
+  # ── Reports ─────────────────────────────────────────────────────────────────
+  /lessons/{lessonId}/report:
+    post:
+      tags: [Reports]
+      summary: Create lesson report
+      description: 'Roles: TEACHER (own lessons only). 50₽ bonus if submitted within 24h.'
+      parameters:
+        - $ref: '#/components/parameters/LessonId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReportDto'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LessonReport'
+        '409':
+          description: Report already exists for this lesson
+
+    get:
+      tags: [Reports]
+      summary: Get lesson report
+      parameters:
+        - $ref: '#/components/parameters/LessonId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LessonReport'
+        '404':
+          description: Report not found
+
+    patch:
+      tags: [Reports]
+      summary: Update lesson report
+      description: 'Roles: TEACHER (own lessons only)'
+      parameters:
+        - $ref: '#/components/parameters/LessonId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateReportDto'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LessonReport'
+
+  # ── Materials ───────────────────────────────────────────────────────────────
+  /lessons/{lessonId}/materials:
+    post:
+      tags: [Materials]
+      summary: Add material to lesson
+      description: 'Roles: ADMIN, MANAGER, TEACHER (own lessons)'
+      parameters:
+        - $ref: '#/components/parameters/LessonId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMaterialDto'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Material'
+
+    get:
+      tags: [Materials]
+      summary: List lesson materials
+      parameters:
+        - $ref: '#/components/parameters/LessonId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Material'
+
+  /lessons/{lessonId}/materials/{id}:
+    delete:
+      tags: [Materials]
+      summary: Delete material
+      description: 'Roles: ADMIN, MANAGER, TEACHER'
+      parameters:
+        - $ref: '#/components/parameters/LessonId'
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Material'
+
+  # ── Reschedule Requests ─────────────────────────────────────────────────────
+  /lessons/{lessonId}/reschedule-requests:
+    post:
+      tags: [Reschedule Requests]
+      summary: Create reschedule/cancel request
+      description: 'Roles: TEACHER, PARENT'
+      parameters:
+        - $ref: '#/components/parameters/LessonId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRescheduleRequestDto'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RescheduleRequest'
+
+  /reschedule-requests:
+    get:
+      tags: [Reschedule Requests]
+      summary: List reschedule requests
+      description: 'Roles: ADMIN, MANAGER'
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/RescheduleRequestStatus'
+        - name: lessonId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RescheduleRequest'
+
+  /reschedule-requests/{id}/approve:
+    post:
+      tags: [Reschedule Requests]
+      summary: Approve reschedule request
+      description: 'Roles: ADMIN, MANAGER'
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RescheduleRequest'
+
+  /reschedule-requests/{id}/reject:
+    post:
+      tags: [Reschedule Requests]
+      summary: Reject reschedule request
+      description: 'Roles: ADMIN, MANAGER'
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RescheduleRequest'
+
+  # ── Payouts ─────────────────────────────────────────────────────────────────
+  /payouts/calculate:
+    post:
+      tags: [Payouts]
+      summary: Calculate payout for a teacher
+      description: 'Roles: ADMIN, MANAGER. Aggregates completed lessons + report bonuses.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalculatePayoutDto'
+      responses:
+        '201':
+          description: Payout created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payout'
+        '400':
+          description: periodStart must be before periodEnd
+        '409':
+          description: Payout already exists for overlapping period
+
+  /payouts/calculate-all:
+    post:
+      tags: [Payouts]
+      summary: Calculate payouts for all teachers
+      description: 'Roles: ADMIN, MANAGER. Skips teachers with existing payouts for the period.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalculateAllPayoutsDto'
+      responses:
+        '201':
+          description: Batch result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created:
+                    type: array
+                    items:
+                      type: string
+                    description: IDs of created payouts
+                  skipped:
+                    type: array
+                    items:
+                      type: string
+                    description: Teacher IDs skipped (overlap)
+
+  /payouts:
+    get:
+      tags: [Payouts]
+      summary: List payouts (role-scoped)
+      description: |
+        ADMIN/MANAGER — all payouts.
+        TEACHER — own payouts only.
+      parameters:
+        - name: teacherId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/PayoutStatus'
+        - name: periodStart
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: periodEnd
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Payout'
+
+  /payouts/{id}/pay:
+    patch:
+      tags: [Payouts]
+      summary: Mark payout as paid
+      description: 'Roles: ADMIN'
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Marked as paid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payout'
+        '400':
+          description: Payout is not in PENDING status
+
+# ── Components ────────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    LessonId:
+      name: lessonId
+      in: path
+      required: true
+      schema:
+        type: string
+
+  schemas:
+    # ── Enums ─────────────────────────────────────────────────────────────────
+    Role:
+      type: string
+      enum: [ADMIN, MANAGER, TEACHER, PARENT, STUDENT]
+
+    LessonStatus:
+      type: string
+      enum: [SCHEDULED, COMPLETED, CANCELED, RESCHEDULED]
+
+    DayOfWeek:
+      type: string
+      enum: [MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY]
+
+    PayoutStatus:
+      type: string
+      enum: [PENDING, PAID]
+
+    TransactionType:
+      type: string
+      enum: [LESSON_CHARGE, MANUAL_TOPUP, ADJUSTMENT]
+
+    RescheduleRequestType:
+      type: string
+      enum: [RESCHEDULE, CANCEL]
+
+    RescheduleRequestStatus:
+      type: string
+      enum: [PENDING, APPROVED, REJECTED]
+
+    # ── Auth DTOs ─────────────────────────────────────────────────────────────
+    LoginDto:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    RefreshDto:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
+    AuthResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+
+    # ── User DTOs ─────────────────────────────────────────────────────────────
+    CreateUserDto:
+      type: object
+      required: [email, password, firstName, lastName]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          maxLength: 128
+        firstName:
+          type: string
+          maxLength: 100
+        lastName:
+          type: string
+          maxLength: 100
+        phone:
+          type: string
+          maxLength: 20
+        avatarUrl:
+          type: string
+        telegramChatId:
+          type: string
+
+    CreateStudentDto:
+      allOf:
+        - $ref: '#/components/schemas/CreateUserDto'
+        - type: object
+          required: [parentUserId]
+          properties:
+            parentUserId:
+              type: string
+            age:
+              type: integer
+              minimum: 1
+            grade:
+              type: string
+              maxLength: 50
+
+    CreateStaffDto:
+      allOf:
+        - $ref: '#/components/schemas/CreateUserDto'
+        - type: object
+          required: [role]
+          properties:
+            role:
+              type: string
+              enum: [ADMIN, MANAGER]
+
+    UpdateUserDto:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        firstName:
+          type: string
+          maxLength: 100
+        lastName:
+          type: string
+          maxLength: 100
+        phone:
+          type: string
+          maxLength: 20
+        avatarUrl:
+          type: string
+        telegramChatId:
+          type: string
+
+    User:
+      type: object
+      description: |
+        Password всегда исключён (глобальный Prisma omit).
+        teacherProfile / parentProfile / studentProfile включаются только
+        на эндпоинтах, которые делают явный include (POST /users/{teachers,parents,students}, GET /users/{id}).
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+        telegramChatId:
+          type: string
+          nullable: true
+        role:
+          $ref: '#/components/schemas/Role'
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        teacherProfile:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/TeacherProfile'
+        parentProfile:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/ParentProfile'
+        studentProfile:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/StudentProfile'
+
+    TeacherProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ParentProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        balance:
+          type: string
+          description: Decimal(12,2) — баланс родителя в рублях (может быть отрицательным)
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    StudentProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        parentId:
+          type: string
+        age:
+          type: integer
+          nullable: true
+        grade:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    # ── List items (для табличных представлений) ─────────────────────────────
+    StudentListItem:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          properties:
+            studentProfile:
+              type: object
+              description: |
+                Расширенный StudentProfile с родителем — для таблицы учеников.
+              properties:
+                id:
+                  type: string
+                userId:
+                  type: string
+                parentId:
+                  type: string
+                age:
+                  type: integer
+                  nullable: true
+                grade:
+                  type: string
+                  nullable: true
+                createdAt:
+                  type: string
+                  format: date-time
+                updatedAt:
+                  type: string
+                  format: date-time
+                parent:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    userId:
+                      type: string
+                    user:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        firstName:
+                          type: string
+                        lastName:
+                          type: string
+                        email:
+                          type: string
+
+    ParentListItem:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          properties:
+            parentProfile:
+              $ref: '#/components/schemas/ParentProfile'
+
+    TeacherListItem:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          properties:
+            teacherProfile:
+              $ref: '#/components/schemas/TeacherProfile'
+
+    # ── Enrollment DTOs ───────────────────────────────────────────────────────
+    CreateEnrollmentDto:
+      type: object
+      required: [teacherId, studentId, lessonPrice, teacherRate]
+      properties:
+        teacherId:
+          type: string
+        studentId:
+          type: string
+        lessonPrice:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+        teacherRate:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+
+    UpdateEnrollmentDto:
+      type: object
+      properties:
+        lessonPrice:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+        teacherRate:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+        isActive:
+          type: boolean
+
+    Enrollment:
+      type: object
+      properties:
+        id:
+          type: string
+        teacherId:
+          type: string
+        studentId:
+          type: string
+        lessonPrice:
+          type: string
+          description: Decimal
+        teacherRate:
+          type: string
+          description: Decimal
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        teacher:
+          $ref: '#/components/schemas/ProfileWithUser'
+        student:
+          $ref: '#/components/schemas/ProfileWithUser'
+
+    # ── Lesson DTOs ───────────────────────────────────────────────────────────
+    CreateLessonDto:
+      type: object
+      required: [enrollmentId, teacherId, studentId, scheduledAt]
+      properties:
+        enrollmentId:
+          type: string
+        teacherId:
+          type: string
+        studentId:
+          type: string
+        scheduledAt:
+          type: string
+          format: date-time
+        durationMinutes:
+          type: integer
+          minimum: 15
+        price:
+          type: number
+          minimum: 0
+        teacherRate:
+          type: number
+          minimum: 0
+
+    RescheduleLessonDto:
+      type: object
+      required: [newDate]
+      properties:
+        newDate:
+          type: string
+          format: date-time
+
+    Lesson:
+      type: object
+      properties:
+        id:
+          type: string
+        templateId:
+          type: string
+          nullable: true
+        enrollmentId:
+          type: string
+        teacherId:
+          type: string
+        studentId:
+          type: string
+        scheduledAt:
+          type: string
+          format: date-time
+        durationMinutes:
+          type: integer
+        status:
+          $ref: '#/components/schemas/LessonStatus'
+        price:
+          type: string
+          nullable: true
+          description: Decimal
+        teacherRate:
+          type: string
+          nullable: true
+          description: Decimal
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        rescheduledToId:
+          type: string
+          nullable: true
+        teacher:
+          $ref: '#/components/schemas/ProfileWithUser'
+        student:
+          $ref: '#/components/schemas/ProfileWithUser'
+        report:
+          $ref: '#/components/schemas/LessonReport'
+        materials:
+          type: array
+          items:
+            $ref: '#/components/schemas/Material'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    # ── Schedule Template DTOs ────────────────────────────────────────────────
+    ScheduleTemplateSlotInput:
+      type: object
+      required: [dayOfWeek, startTime]
+      properties:
+        dayOfWeek:
+          $ref: '#/components/schemas/DayOfWeek'
+        startTime:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          example: '16:00'
+        durationMinutes:
+          type: integer
+          minimum: 15
+          default: 60
+
+    CreateScheduleTemplateDto:
+      type: object
+      required: [enrollmentId, teacherId, studentId, slots]
+      properties:
+        enrollmentId:
+          type: string
+        teacherId:
+          type: string
+        studentId:
+          type: string
+        slots:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ScheduleTemplateSlotInput'
+
+    UpdateScheduleTemplateDto:
+      type: object
+      properties:
+        isActive:
+          type: boolean
+        slots:
+          type: array
+          description: Replaces all slots of the template when provided.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ScheduleTemplateSlotInput'
+
+    ScheduleTemplateSlot:
+      type: object
+      properties:
+        id:
+          type: string
+        templateId:
+          type: string
+        dayOfWeek:
+          $ref: '#/components/schemas/DayOfWeek'
+        startTime:
+          type: string
+          example: '16:00'
+        durationMinutes:
+          type: integer
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ScheduleTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+        enrollmentId:
+          type: string
+        teacherId:
+          type: string
+        studentId:
+          type: string
+        isActive:
+          type: boolean
+        slots:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleTemplateSlot'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    # ── Report DTOs ───────────────────────────────────────────────────────────
+    CreateReportDto:
+      type: object
+      required: [topic, covered, results]
+      properties:
+        topic:
+          type: string
+        covered:
+          type: string
+        results:
+          type: string
+        parentComment:
+          type: string
+        homework:
+          type: string
+        recommendations:
+          type: string
+        extraNotes:
+          type: string
+
+    UpdateReportDto:
+      type: object
+      properties:
+        topic:
+          type: string
+        covered:
+          type: string
+        results:
+          type: string
+        parentComment:
+          type: string
+        homework:
+          type: string
+        recommendations:
+          type: string
+        extraNotes:
+          type: string
+
+    LessonReport:
+      type: object
+      properties:
+        id:
+          type: string
+        lessonId:
+          type: string
+        topic:
+          type: string
+        covered:
+          type: string
+        results:
+          type: string
+        parentComment:
+          type: string
+          nullable: true
+        homework:
+          type: string
+          nullable: true
+        recommendations:
+          type: string
+          nullable: true
+        extraNotes:
+          type: string
+          nullable: true
+        bonusApplied:
+          type: boolean
+        bonusAmount:
+          type: string
+          nullable: true
+          description: Decimal
+        sentToTelegram:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    # ── Material DTOs ─────────────────────────────────────────────────────────
+    CreateMaterialDto:
+      type: object
+      required: [title, fileUrl]
+      properties:
+        title:
+          type: string
+        fileUrl:
+          type: string
+          format: uri
+        fileType:
+          type: string
+        fileSize:
+          type: integer
+          minimum: 0
+
+    Material:
+      type: object
+      properties:
+        id:
+          type: string
+        lessonId:
+          type: string
+          nullable: true
+        title:
+          type: string
+        fileUrl:
+          type: string
+        fileType:
+          type: string
+          nullable: true
+        fileSize:
+          type: integer
+          nullable: true
+        uploadedAt:
+          type: string
+          format: date-time
+
+    # ── Reschedule Request DTOs ───────────────────────────────────────────────
+    CreateRescheduleRequestDto:
+      type: object
+      required: [type]
+      properties:
+        type:
+          $ref: '#/components/schemas/RescheduleRequestType'
+        reason:
+          type: string
+        proposedDate:
+          type: string
+          format: date-time
+          description: Required when type=RESCHEDULE
+
+    RescheduleRequest:
+      type: object
+      properties:
+        id:
+          type: string
+        lessonId:
+          type: string
+        type:
+          $ref: '#/components/schemas/RescheduleRequestType'
+        reason:
+          type: string
+          nullable: true
+        createdById:
+          type: string
+        proposedDate:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          $ref: '#/components/schemas/RescheduleRequestStatus'
+        resolvedById:
+          type: string
+          nullable: true
+        resolvedAt:
+          type: string
+          format: date-time
+          nullable: true
+        sentToTelegram:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    # ── Payout DTOs ───────────────────────────────────────────────────────────
+    CalculatePayoutDto:
+      type: object
+      required: [teacherId, periodStart, periodEnd]
+      properties:
+        teacherId:
+          type: string
+        periodStart:
+          type: string
+          format: date-time
+        periodEnd:
+          type: string
+          format: date-time
+
+    CalculateAllPayoutsDto:
+      type: object
+      required: [periodStart, periodEnd]
+      properties:
+        periodStart:
+          type: string
+          format: date-time
+        periodEnd:
+          type: string
+          format: date-time
+
+    Payout:
+      type: object
+      properties:
+        id:
+          type: string
+        teacherId:
+          type: string
+        periodStart:
+          type: string
+          format: date-time
+        periodEnd:
+          type: string
+          format: date-time
+        basePay:
+          type: string
+          description: Decimal
+        bonusPay:
+          type: string
+          description: Decimal
+        totalPay:
+          type: string
+          description: Decimal
+        status:
+          $ref: '#/components/schemas/PayoutStatus'
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+        teacher:
+          $ref: '#/components/schemas/ProfileWithUser'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    # ── Shared ────────────────────────────────────────────────────────────────
+    ProfileWithUser:
+      type: object
+      description: Teacher/Student profile with nested user
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+
+security:
+  - BearerAuth: []
