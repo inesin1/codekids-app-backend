@@ -1,31 +1,11 @@
-import { IsEmail, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEmail, IsString, MaxLength } from 'class-validator';
+import { PersonFieldsDto } from './person-fields.dto';
 
-export class CreateUserDto {
+export class CreateUserDto extends PersonFieldsDto {
   @IsEmail()
   email: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  phone?: string;
 
   @IsString()
   @MaxLength(128)
   password: string;
-
-  @IsString()
-  @MaxLength(100)
-  firstName: string;
-
-  @IsString()
-  @MaxLength(100)
-  lastName: string;
-
-  @IsOptional()
-  @IsString()
-  avatarUrl?: string;
-
-  @IsOptional()
-  @IsString()
-  telegramChatId?: string;
 }

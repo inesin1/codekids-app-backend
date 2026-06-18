@@ -1,8 +1,10 @@
-import { IsIn } from 'class-validator';
+import { ArrayNotEmpty, IsIn } from 'class-validator';
 import { Role } from '../../../../generated/client';
 import { CreateUserDto } from './create-user.dto';
 
+// staff = ADMIN/MANAGER, опционально + TEACHER (управленец, который ещё и ведёт)
 export class CreateStaffDto extends CreateUserDto {
-  @IsIn([Role.ADMIN, Role.MANAGER])
-  role: typeof Role.ADMIN | typeof Role.MANAGER;
+  @ArrayNotEmpty()
+  @IsIn([Role.ADMIN, Role.MANAGER, Role.TEACHER], { each: true })
+  roles: Role[];
 }

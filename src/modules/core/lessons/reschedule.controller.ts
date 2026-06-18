@@ -15,7 +15,7 @@ export class RescheduleController {
     @Param('lessonId') lessonId: string,
     @Body() dto: CreateRescheduleRequestDto,
   ) {
-    return this.rescheduleService.createRequest(lessonId, req.user!.id, dto);
+    return this.rescheduleService.createRequest(lessonId, req.user!, dto);
   }
 
   @Roles(Role.ADMIN, Role.MANAGER)

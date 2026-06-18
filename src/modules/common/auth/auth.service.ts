@@ -5,6 +5,7 @@ import { createHash, randomBytes } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../../core/users/users.service';
+import { Role } from '../../../generated/client';
 
 @Injectable()
 export class AuthService {
@@ -17,12 +18,12 @@ export class AuthService {
 
   async login(email: string, password: string) {
     const user = await this.usersService.findByEmail(email);
-    if (!user || !(await bcrypt.compare(password, user.password))) {
+    if (!user?.password || !(await bcrypt.compare(password, user.password))) {
       throw new UnauthorizedException('Неверный email или пароль');
     }
 
     const { password: _password, ...safeUser } = user;
-    const tokens = await this.generateTokens(user.id, user.role);
+    const tokens = await this.generateTokens(user.id, user.roles);
 
     return { ...tokens, user: safeUser };
   }
@@ -52,7 +53,7 @@ export class AuthService {
     await this.prisma.refreshToken.delete({ where: { id: stored.id } });
 
     const { password: _password, ...safeUser } = user;
-    const tokens = await this.generateTokens(user.id, user.role);
+    const tokens = await this.generateTokens(user.id, user.roles);
 
     return { ...tokens, user: safeUser };
   }
@@ -62,8 +63,8 @@ export class AuthService {
     await this.prisma.refreshToken.deleteMany({ where: { tokenHash } });
   }
 
-  private async generateTokens(userId: string, role: string) {
-    const payload = { sub: userId, role };
+  private async generateTokens(userId: string, roles: Role[]) {
+    const payload = { sub: userId, roles };
 
     const accessToken = await this.jwtService.signAsync(payload);
 

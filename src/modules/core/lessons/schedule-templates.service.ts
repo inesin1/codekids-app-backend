@@ -110,17 +110,4 @@ export class ScheduleTemplatesService {
       });
     });
   }
-
-  findActive() {
-    return this.prisma.scheduleTemplate.findMany({
-      where: { isActive: true },
-      include: {
-        enrollment: true,
-        slots: {
-          where: { isActive: true },
-          orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
-        },
-      },
-    });
-  }
 }

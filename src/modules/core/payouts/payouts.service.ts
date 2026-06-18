@@ -25,54 +25,66 @@ export class PayoutsService {
       throw new BadRequestException('periodStart must be before periodEnd');
     }
 
-    // Check overlapping payout for this teacher
-    const existing = await this.prisma.payout.findFirst({
-      where: {
-        teacherId: dto.teacherId,
-        periodStart: { lt: periodEnd },
-        periodEnd: { gt: periodStart },
-      },
-    });
-    if (existing) {
-      throw new ConflictException(
-        'Payout already exists for overlapping period',
-      );
-    }
-
-    // Aggregate completed lessons for the teacher in this period
-    const lessons = await this.prisma.lesson.findMany({
-      where: {
-        teacherId: dto.teacherId,
-        status: LessonStatus.COMPLETED,
-        completedAt: { gte: periodStart, lte: periodEnd },
-      },
-      include: { report: true },
-    });
-
-    const basePay = lessons.reduce(
-      (sum, l) => sum.add(l.teacherRate ?? new Prisma.Decimal(0)),
-      new Prisma.Decimal(0),
-    );
-
-    const bonusPay = lessons.reduce((sum, l) => {
-      if (l.report?.bonusApplied && l.report.bonusAmount) {
-        return sum.add(l.report.bonusAmount);
+    return this.prisma.$transaction(async (tx) => {
+      // Check overlapping payout for this teacher
+      const existing = await tx.payout.findFirst({
+        where: {
+          teacherId: dto.teacherId,
+          periodStart: { lt: periodEnd },
+          periodEnd: { gt: periodStart },
+        },
+      });
+      if (existing) {
+        throw new ConflictException(
+          'Payout already exists for overlapping period',
+        );
       }
-      return sum;
-    }, new Prisma.Decimal(0));
 
-    const totalPay = basePay.add(bonusPay);
+      // Aggregate completed lessons for the teacher in this period [start, end)
+      const lessons = await tx.lesson.findMany({
+        where: {
+          teacherId: dto.teacherId,
+          status: LessonStatus.COMPLETED,
+          completedAt: { gte: periodStart, lt: periodEnd },
+        },
+        include: { report: true },
+      });
 
-    return this.prisma.payout.create({
-      data: {
-        teacherId: dto.teacherId,
-        periodStart,
-        periodEnd,
-        basePay,
-        bonusPay,
-        totalPay,
-      },
-      include: payoutInclude,
+      const basePay = lessons.reduce(
+        (sum, l) => sum.add(l.teacherRate ?? new Prisma.Decimal(0)),
+        new Prisma.Decimal(0),
+      );
+
+      const bonusPay = lessons.reduce((sum, l) => {
+        if (l.report?.bonusApplied && l.report.bonusAmount) {
+          return sum.add(l.report.bonusAmount);
+        }
+        return sum;
+      }, new Prisma.Decimal(0));
+
+      const totalPay = basePay.add(bonusPay);
+
+      try {
+        return await tx.payout.create({
+          data: {
+            teacherId: dto.teacherId,
+            periodStart,
+            periodEnd,
+            basePay,
+            bonusPay,
+            totalPay,
+          },
+          include: payoutInclude,
+        });
+      } catch (e) {
+        if (
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === 'P2002'
+        ) {
+          throw new ConflictException('Payout already exists for this period');
+        }
+        throw e;
+      }
     });
   }
 
@@ -89,7 +101,7 @@ export class PayoutsService {
       .findMany({
         where: {
           status: LessonStatus.COMPLETED,
-          completedAt: { gte: periodStart, lte: periodEnd },
+          completedAt: { gte: periodStart, lt: periodEnd },
         },
         select: { teacherId: true },
         distinct: ['teacherId'],

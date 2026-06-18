@@ -12,6 +12,7 @@ import { Roles } from '../../common/auth/decorators/roles.decorator';
 import { EnrollmentsService } from './enrollments.service';
 import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
 import { UpdateEnrollmentDto } from './dto/update-enrollment.dto';
+import { FindEnrollmentsDto } from './dto/find-enrollments.dto';
 
 @Controller('enrollments')
 export class EnrollmentsController {
@@ -23,15 +24,13 @@ export class EnrollmentsController {
     return this.enrollmentsService.create(dto);
   }
 
+  @Roles(Role.ADMIN, Role.MANAGER)
   @Get()
-  findAll(
-    @Query('teacherId') teacherId?: string,
-    @Query('studentId') studentId?: string,
-    @Query('isActive') isActive?: boolean,
-  ) {
-    return this.enrollmentsService.findAll({ teacherId, studentId, isActive });
+  findAll(@Query() query: FindEnrollmentsDto) {
+    return this.enrollmentsService.findAll(query);
   }
 
+  @Roles(Role.ADMIN, Role.MANAGER)
   @Get(':id')
   findById(@Param('id') id: string) {
     return this.enrollmentsService.findById(id);

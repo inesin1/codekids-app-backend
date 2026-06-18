@@ -12,12 +12,12 @@ enum Role {
 
 model User {
   id        String   @id @default(cuid())
-  email     String   @unique
+  email     String?  @unique // null = lite-пользователь без доступа в ЛК
   phone     String?
-  password  String
+  password  String? // null = вход в ЛК недоступен
   firstName String
   lastName  String
-  role      Role
+  roles     Role[]
   isActive  Boolean  @default(true)
   avatarUrl String?
 
@@ -37,7 +37,6 @@ model User {
   rescheduleRequestsCreated RescheduleRequest[] @relation("RescheduleCreatedBy")
   rescheduleRequestsResolved RescheduleRequest[] @relation("RescheduleResolvedBy")
 
-  @@index([role])
   @@map("users")
 }
 
@@ -91,8 +90,8 @@ model StudentProfile {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  parentId String
-  parent   ParentProfile @relation(fields: [parentId], references: [id])
+  parentId String? // null для пробных учеников без оформленного родителя
+  parent   ParentProfile? @relation(fields: [parentId], references: [id])
 
   age   Int?
   grade String? // класс / уровень

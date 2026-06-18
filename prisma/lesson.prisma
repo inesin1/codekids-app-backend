@@ -120,7 +120,7 @@ model Lesson {
   @@index([scheduledAt])
   @@index([status])
   @@index([enrollmentId])
-  @@index([templateId, scheduledAt])
+  @@unique([templateId, scheduledAt])
   @@map("lessons")
 }
 

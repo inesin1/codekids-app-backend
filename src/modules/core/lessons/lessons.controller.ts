@@ -51,16 +51,19 @@ export class LessonsController {
   }
 
   @Get(':id')
-  findById(@Param('id') id: string) {
-    return this.lessonsService.findById(id);
+  async findById(@Req() req: Express.Request, @Param('id') id: string) {
+    const scope = await this.resolveScope(req.user!);
+    return this.lessonsService.findById(id, scope);
   }
 
   @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER)
   @Post(':id/complete')
   async complete(@Req() req: Express.Request, @Param('id') id: string) {
-    if (req.user!.role === Role.TEACHER) {
-      const profile = await this.getTeacherProfile(req.user!.id);
-      await this.lessonsService.assertTeacherOwns(id, profile.id);
+    if (!this.isStaff(req.user!)) {
+      const teacherId = await this.lessonsService.getTeacherProfileId(
+        req.user!.id,
+      );
+      await this.lessonsService.assertTeacherOwns(id, teacherId);
     }
     return this.lessonsService.complete(id);
   }
@@ -77,33 +80,37 @@ export class LessonsController {
     return this.lessonsService.reschedule(id, dto);
   }
 
-  private async resolveScope(user: { id: string; role: string }) {
-    if (user.role === Role.ADMIN || user.role === Role.MANAGER) {
+  private isStaff(user: { roles: Role[] }) {
+    return user.roles.includes(Role.ADMIN) || user.roles.includes(Role.MANAGER);
+  }
+
+  private async resolveScope(user: { id: string; roles: Role[] }) {
+    if (this.isStaff(user)) {
       return undefined;
     }
-    if (user.role === Role.TEACHER) {
-      const profile = await this.getTeacherProfile(user.id);
-      return { teacherProfileId: profile.id };
+    if (user.roles.includes(Role.TEACHER)) {
+      return {
+        teacherProfileId: await this.lessonsService.getTeacherProfileId(
+          user.id,
+        ),
+      };
     }
-    if (user.role === Role.PARENT) {
-      const profile = await this.prisma.parentProfile.findUniqueOrThrow({
+    if (user.roles.includes(Role.PARENT)) {
+      const profile = await this.prisma.parentProfile.findUnique({
         where: { userId: user.id },
         include: { students: { select: { id: true } } },
       });
+      if (!profile) throw new ForbiddenException();
       return { studentProfileIds: profile.students.map((s) => s.id) };
     }
-    if (user.role === Role.STUDENT) {
-      const profile = await this.prisma.studentProfile.findUniqueOrThrow({
+    if (user.roles.includes(Role.STUDENT)) {
+      const profile = await this.prisma.studentProfile.findUnique({
         where: { userId: user.id },
+        select: { id: true },
       });
+      if (!profile) throw new ForbiddenException();
       return { studentProfileIds: [profile.id] };
     }
     throw new ForbiddenException();
-  }
-
-  private async getTeacherProfile(userId: string) {
-    return this.prisma.teacherProfile.findUniqueOrThrow({
-      where: { userId },
-    });
   }
 }

@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Reflector } from '@nestjs/core';
 import { Request } from 'express';
+import { Role } from '../../../../generated/client';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
 @Injectable()
@@ -36,12 +37,12 @@ export class JwtAuthGuard implements CanActivate {
     try {
       const payload = await this.jwtService.verifyAsync<{
         sub: string;
-        role: string;
+        roles: Role[];
       }>(token, {
         secret: this.config.getOrThrow<string>('JWT_SECRET'),
       });
 
-      request.user = { id: payload.sub, role: payload.role };
+      request.user = { id: payload.sub, roles: payload.roles };
     } catch {
       throw new UnauthorizedException('Токен невалиден или истёк');
     }

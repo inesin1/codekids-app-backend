@@ -4,17 +4,25 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma, LessonStatus } from '../../../generated/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateReportDto } from './dto/create-report.dto';
 import { UpdateReportDto } from './dto/update-report.dto';
 
-const BONUS_AMOUNT = 50;
-const BONUS_WINDOW_MS = 24 * 60 * 60 * 1000;
-
 @Injectable()
 export class ReportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly bonusAmount: number;
+  private readonly bonusWindowMs: number;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    config: ConfigService,
+  ) {
+    this.bonusAmount = Number(config.get('BONUS_AMOUNT') ?? 50);
+    this.bonusWindowMs =
+      Number(config.get('BONUS_WINDOW_HOURS') ?? 24) * 60 * 60 * 1000;
+  }
 
   async create(lessonId: string, dto: CreateReportDto) {
     const lesson = await this.prisma.lesson.findUnique({
@@ -32,8 +40,7 @@ export class ReportsService {
     }
 
     const bonusApplied =
-      !!lesson.completedAt &&
-      Date.now() - lesson.completedAt.getTime() < BONUS_WINDOW_MS;
+      !!lesson.completedAt && this.isWithinBonusWindow(lesson.completedAt);
 
     return this.prisma.lessonReport.create({
       data: {
@@ -41,7 +48,7 @@ export class ReportsService {
         ...dto,
         bonusApplied,
         bonusAmount: bonusApplied
-          ? new Prisma.Decimal(BONUS_AMOUNT)
+          ? new Prisma.Decimal(this.bonusAmount)
           : undefined,
       },
     });
@@ -56,10 +63,29 @@ export class ReportsService {
   }
 
   async update(lessonId: string, dto: UpdateReportDto) {
-    await this.findByLessonId(lessonId);
+    const report = await this.prisma.lessonReport.findUnique({
+      where: { lessonId },
+      include: { lesson: { select: { completedAt: true } } },
+    });
+    if (!report) throw new NotFoundException('Report not found');
+
+    // После закрытия бонус-окна отчёт уже учтён в выплате — правки запрещены
+    if (
+      report.lesson.completedAt &&
+      !this.isWithinBonusWindow(report.lesson.completedAt)
+    ) {
+      throw new BadRequestException(
+        'Report can no longer be edited (bonus window closed)',
+      );
+    }
+
     return this.prisma.lessonReport.update({
       where: { lessonId },
       data: dto,
     });
+  }
+
+  private isWithinBonusWindow(completedAt: Date): boolean {
+    return Date.now() - completedAt.getTime() < this.bonusWindowMs;
   }
 }

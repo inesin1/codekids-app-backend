@@ -19,6 +19,15 @@ export class MaterialsService {
     });
   }
 
+  async getLessonId(id: string): Promise<string | null> {
+    const material = await this.prisma.material.findUnique({
+      where: { id },
+      select: { lessonId: true },
+    });
+    if (!material) throw new NotFoundException('Material not found');
+    return material.lessonId;
+  }
+
   async remove(id: string) {
     const material = await this.prisma.material.findUnique({ where: { id } });
     if (!material) throw new NotFoundException('Material not found');

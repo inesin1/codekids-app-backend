@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Req } from '@nestjs/common';
 import { Role } from '../../../generated/client';
 import { Roles } from '../../common/auth/decorators/roles.decorator';
-import { PrismaService } from '../../common/prisma/prisma.service';
 import { LessonsService } from './lessons.service';
 import { ReportsService } from './reports.service';
 import { CreateReportDto } from './dto/create-report.dto';
@@ -12,7 +11,6 @@ export class ReportsController {
   constructor(
     private readonly reportsService: ReportsService,
     private readonly lessonsService: LessonsService,
-    private readonly prisma: PrismaService,
   ) {}
 
   @Roles(Role.TEACHER)
@@ -22,15 +20,19 @@ export class ReportsController {
     @Param('lessonId') lessonId: string,
     @Body() dto: CreateReportDto,
   ) {
-    const profile = await this.prisma.teacherProfile.findUniqueOrThrow({
-      where: { userId: req.user!.id },
-    });
-    await this.lessonsService.assertTeacherOwns(lessonId, profile.id);
+    await this.assertTeacherOwns(req.user!.id, lessonId);
     return this.reportsService.create(lessonId, dto);
   }
 
+  @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER)
   @Get()
-  findByLessonId(@Param('lessonId') lessonId: string) {
+  async findByLessonId(
+    @Req() req: Express.Request,
+    @Param('lessonId') lessonId: string,
+  ) {
+    if (!this.isStaff(req.user!)) {
+      await this.assertTeacherOwns(req.user!.id, lessonId);
+    }
     return this.reportsService.findByLessonId(lessonId);
   }
 
@@ -41,10 +43,16 @@ export class ReportsController {
     @Param('lessonId') lessonId: string,
     @Body() dto: UpdateReportDto,
   ) {
-    const profile = await this.prisma.teacherProfile.findUniqueOrThrow({
-      where: { userId: req.user!.id },
-    });
-    await this.lessonsService.assertTeacherOwns(lessonId, profile.id);
+    await this.assertTeacherOwns(req.user!.id, lessonId);
     return this.reportsService.update(lessonId, dto);
+  }
+
+  private isStaff(user: { roles: Role[] }) {
+    return user.roles.includes(Role.ADMIN) || user.roles.includes(Role.MANAGER);
+  }
+
+  private async assertTeacherOwns(userId: string, lessonId: string) {
+    const teacherId = await this.lessonsService.getTeacherProfileId(userId);
+    await this.lessonsService.assertTeacherOwns(lessonId, teacherId);
   }
 }

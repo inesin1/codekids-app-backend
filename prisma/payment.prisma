@@ -86,6 +86,7 @@ model Payout {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([teacherId, periodStart, periodEnd])
   @@index([teacherId])
   @@index([status])
   @@index([periodStart, periodEnd])
