@@ -8,7 +8,9 @@ const adapter = new PrismaPg({
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
-  const existing = await prisma.user.findFirst({ where: { role: Role.ADMIN } });
+  const existing = await prisma.user.findFirst({
+    where: { roles: { has: Role.ADMIN } },
+  });
   if (existing) {
     console.log(`Admin already exists: ${existing.email}`);
     return;
@@ -20,7 +22,7 @@ async function main() {
       password: await bcrypt.hash('1Gb128OP', 10),
       firstName: 'Tech',
       lastName: 'Admin',
-      role: Role.ADMIN,
+      roles: [Role.ADMIN],
     },
   });
 

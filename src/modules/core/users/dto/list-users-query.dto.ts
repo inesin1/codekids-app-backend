@@ -1,4 +1,5 @@
 import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
+import { ToBoolean } from '../../../common/validation/transforms';
 
 export class ListUsersQueryDto {
   @IsOptional()
@@ -7,6 +8,7 @@ export class ListUsersQueryDto {
   q?: string;
 
   @IsOptional()
+  @ToBoolean()
   @IsBoolean()
   isActive?: boolean;
 }

@@ -1,9 +1,11 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import {
+  Role,
   RescheduleRequestStatus,
   RescheduleRequestType,
 } from '../../../generated/client';
@@ -20,7 +22,7 @@ export class RescheduleService {
 
   async createRequest(
     lessonId: string,
-    userId: string,
+    user: { id: string; roles: Role[] },
     dto: CreateRescheduleRequestDto,
   ) {
     if (dto.type === RescheduleRequestType.RESCHEDULE && !dto.proposedDate) {
@@ -29,18 +31,39 @@ export class RescheduleService {
       );
     }
 
-    await this.lessonsService.findById(lessonId);
+    const lesson = await this.lessonsService.findById(lessonId);
+    await this.assertOwnsLesson(user, lesson.teacherId, lesson.studentId);
 
     return this.prisma.rescheduleRequest.create({
       data: {
         lessonId,
-        createdById: userId,
+        createdById: user.id,
         type: dto.type,
         reason: dto.reason,
         proposedDate: dto.proposedDate ? new Date(dto.proposedDate) : undefined,
       },
       include: { lesson: true, createdBy: { omit: { password: true } } },
     });
+  }
+
+  // Учитель может заявлять только по своим урокам, родитель — по урокам своих детей
+  private async assertOwnsLesson(
+    user: { id: string; roles: Role[] },
+    teacherId: string,
+    studentId: string,
+  ) {
+    if (user.roles.includes(Role.TEACHER)) {
+      const profileId = await this.lessonsService.getTeacherProfileId(user.id);
+      if (profileId === teacherId) return;
+    }
+    if (user.roles.includes(Role.PARENT)) {
+      const parent = await this.prisma.parentProfile.findUnique({
+        where: { userId: user.id },
+        select: { students: { select: { id: true } } },
+      });
+      if (parent?.students.some((s) => s.id === studentId)) return;
+    }
+    throw new ForbiddenException('You do not have access to this lesson');
   }
 
   findAll(filters: { status?: RescheduleRequestStatus; lessonId?: string }) {
@@ -65,23 +88,25 @@ export class RescheduleService {
       throw new BadRequestException('Request is already resolved');
     }
 
-    // Execute the actual cancel/reschedule
-    if (request.type === RescheduleRequestType.CANCEL) {
-      await this.lessonsService.cancel(request.lessonId);
-    } else {
-      await this.lessonsService.reschedule(request.lessonId, {
-        newDate: request.proposedDate!.toISOString(),
-      });
-    }
+    // Изменение урока + закрытие заявки атомарно
+    return this.prisma.$transaction(async (tx) => {
+      if (request.type === RescheduleRequestType.CANCEL) {
+        await this.lessonsService.cancelWithin(tx, request.lessonId);
+      } else {
+        await this.lessonsService.rescheduleWithin(tx, request.lessonId, {
+          newDate: request.proposedDate!.toISOString(),
+        });
+      }
 
-    return this.prisma.rescheduleRequest.update({
-      where: { id: requestId },
-      data: {
-        status: RescheduleRequestStatus.APPROVED,
-        resolvedById: resolvedByUserId,
-        resolvedAt: new Date(),
-      },
-      include: { lesson: true },
+      return tx.rescheduleRequest.update({
+        where: { id: requestId },
+        data: {
+          status: RescheduleRequestStatus.APPROVED,
+          resolvedById: resolvedByUserId,
+          resolvedAt: new Date(),
+        },
+        include: { lesson: true },
+      });
     });
   }
 

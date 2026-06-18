@@ -8,11 +8,12 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { DayOfWeek, Role } from '../../../generated/client';
+import { Role } from '../../../generated/client';
 import { Roles } from '../../common/auth/decorators/roles.decorator';
 import { ScheduleTemplatesService } from './schedule-templates.service';
 import { CreateScheduleTemplateDto } from './dto/create-schedule-template.dto';
 import { UpdateScheduleTemplateDto } from './dto/update-schedule-template.dto';
+import { FindScheduleTemplatesDto } from './dto/find-schedule-templates.dto';
 
 @Controller('schedule-templates')
 export class ScheduleTemplatesController {
@@ -24,21 +25,13 @@ export class ScheduleTemplatesController {
     return this.templatesService.create(dto);
   }
 
+  @Roles(Role.ADMIN, Role.MANAGER)
   @Get()
-  findAll(
-    @Query('teacherId') teacherId?: string,
-    @Query('studentId') studentId?: string,
-    @Query('dayOfWeek') dayOfWeek?: DayOfWeek,
-    @Query('isActive') isActive?: boolean,
-  ) {
-    return this.templatesService.findAll({
-      teacherId,
-      studentId,
-      dayOfWeek,
-      isActive,
-    });
+  findAll(@Query() query: FindScheduleTemplatesDto) {
+    return this.templatesService.findAll(query);
   }
 
+  @Roles(Role.ADMIN, Role.MANAGER)
   @Get(':id')
   findById(@Param('id') id: string) {
     return this.templatesService.findById(id);

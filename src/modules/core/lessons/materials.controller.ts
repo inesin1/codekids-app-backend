@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Post,
@@ -9,7 +10,6 @@ import {
 } from '@nestjs/common';
 import { Role } from '../../../generated/client';
 import { Roles } from '../../common/auth/decorators/roles.decorator';
-import { PrismaService } from '../../common/prisma/prisma.service';
 import { LessonsService } from './lessons.service';
 import { MaterialsService } from './materials.service';
 import { CreateMaterialDto } from './dto/create-material.dto';
@@ -19,7 +19,6 @@ export class MaterialsController {
   constructor(
     private readonly materialsService: MaterialsService,
     private readonly lessonsService: LessonsService,
-    private readonly prisma: PrismaService,
   ) {}
 
   @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER)
@@ -29,23 +28,41 @@ export class MaterialsController {
     @Param('lessonId') lessonId: string,
     @Body() dto: CreateMaterialDto,
   ) {
-    if (req.user!.role === Role.TEACHER) {
-      const profile = await this.prisma.teacherProfile.findUniqueOrThrow({
-        where: { userId: req.user!.id },
-      });
-      await this.lessonsService.assertTeacherOwns(lessonId, profile.id);
-    }
+    await this.assertAccess(req.user!, lessonId);
     return this.materialsService.create(lessonId, dto);
   }
 
+  @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER)
   @Get()
-  findByLessonId(@Param('lessonId') lessonId: string) {
+  async findByLessonId(
+    @Req() req: Express.Request,
+    @Param('lessonId') lessonId: string,
+  ) {
+    await this.assertAccess(req.user!, lessonId);
     return this.materialsService.findByLessonId(lessonId);
   }
 
   @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER)
   @Delete(':id')
-  remove(@Param('id') id: string) {
+  async remove(@Req() req: Express.Request, @Param('id') id: string) {
+    if (!this.isStaff(req.user!)) {
+      const lessonId = await this.materialsService.getLessonId(id);
+      await this.assertAccess(req.user!, lessonId);
+    }
     return this.materialsService.remove(id);
+  }
+
+  private isStaff(user: { roles: Role[] }) {
+    return user.roles.includes(Role.ADMIN) || user.roles.includes(Role.MANAGER);
+  }
+
+  private async assertAccess(
+    user: { id: string; roles: Role[] },
+    lessonId: string | null,
+  ) {
+    if (this.isStaff(user)) return;
+    if (!lessonId) throw new ForbiddenException();
+    const teacherId = await this.lessonsService.getTeacherProfileId(user.id);
+    await this.lessonsService.assertTeacherOwns(lessonId, teacherId);
   }
 }

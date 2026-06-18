@@ -127,7 +127,10 @@ export class LessonsService {
 
     if (!filtered.length) return { created: 0 };
 
-    const result = await this.prisma.lesson.createMany({ data: filtered });
+    const result = await this.prisma.lesson.createMany({
+      data: filtered,
+      skipDuplicates: true,
+    });
     return { created: result.count };
   }
 
@@ -167,12 +170,29 @@ export class LessonsService {
     });
   }
 
-  async findById(id: string) {
+  async findById(
+    id: string,
+    scope?: { teacherProfileId?: string; studentProfileIds?: string[] },
+  ) {
     const lesson = await this.prisma.lesson.findUnique({
       where: { id },
       include: lessonInclude,
     });
     if (!lesson) throw new NotFoundException('Lesson not found');
+
+    if (
+      scope?.teacherProfileId &&
+      lesson.teacherId !== scope.teacherProfileId
+    ) {
+      throw new ForbiddenException('You do not have access to this lesson');
+    }
+    if (
+      scope?.studentProfileIds &&
+      !scope.studentProfileIds.includes(lesson.studentId)
+    ) {
+      throw new ForbiddenException('You do not have access to this lesson');
+    }
+
     return lesson;
   }
 
@@ -212,6 +232,12 @@ export class LessonsService {
         where: { id: lesson.studentId },
       });
 
+      if (!student.parentId) {
+        throw new BadRequestException(
+          'Cannot charge a paid lesson: student has no parent assigned',
+        );
+      }
+
       const parent = await tx.parentProfile.findUniqueOrThrow({
         where: { id: student.parentId },
       });
@@ -248,59 +274,87 @@ export class LessonsService {
     });
   }
 
-  async cancel(id: string) {
-    const lesson = await this.findById(id);
+  cancel(id: string) {
+    return this.cancelWithin(this.prisma, id);
+  }
+
+  // Вариант для вызова внутри внешней транзакции (см. RescheduleService.approve)
+  async cancelWithin(tx: Prisma.TransactionClient, id: string) {
+    const lesson = await tx.lesson.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    if (!lesson) throw new NotFoundException('Lesson not found');
     if (lesson.status !== LessonStatus.SCHEDULED) {
       throw new BadRequestException(
         `Cannot cancel lesson with status ${lesson.status}`,
       );
     }
 
-    return this.prisma.lesson.update({
+    return tx.lesson.update({
       where: { id },
       data: { status: LessonStatus.CANCELED },
       include: lessonInclude,
     });
   }
 
-  async reschedule(id: string, dto: RescheduleLessonDto) {
-    const lesson = await this.findById(id);
+  reschedule(id: string, dto: RescheduleLessonDto) {
+    return this.prisma.$transaction((tx) => this.rescheduleWithin(tx, id, dto));
+  }
+
+  async rescheduleWithin(
+    tx: Prisma.TransactionClient,
+    id: string,
+    dto: RescheduleLessonDto,
+  ) {
+    const lesson = await tx.lesson.findUnique({ where: { id } });
+    if (!lesson) throw new NotFoundException('Lesson not found');
     if (lesson.status !== LessonStatus.SCHEDULED) {
       throw new BadRequestException(
         `Cannot reschedule lesson with status ${lesson.status}`,
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      // Create new lesson at the proposed date
-      const newLesson = await tx.lesson.create({
-        data: {
-          templateId: lesson.templateId,
-          enrollmentId: lesson.enrollmentId,
-          teacherId: lesson.teacherId,
-          studentId: lesson.studentId,
-          scheduledAt: new Date(dto.newDate),
-          durationMinutes: lesson.durationMinutes,
-        },
-      });
+    // Create new lesson at the proposed date
+    const newLesson = await tx.lesson.create({
+      data: {
+        templateId: lesson.templateId,
+        enrollmentId: lesson.enrollmentId,
+        teacherId: lesson.teacherId,
+        studentId: lesson.studentId,
+        scheduledAt: new Date(dto.newDate),
+        durationMinutes: lesson.durationMinutes,
+      },
+    });
 
-      // Mark original as rescheduled
-      return tx.lesson.update({
-        where: { id },
-        data: {
-          status: LessonStatus.RESCHEDULED,
-          rescheduledToId: newLesson.id,
-        },
-        include: { ...lessonInclude, rescheduledTo: true },
-      });
+    // Mark original as rescheduled
+    return tx.lesson.update({
+      where: { id },
+      data: {
+        status: LessonStatus.RESCHEDULED,
+        rescheduledToId: newLesson.id,
+      },
+      include: { ...lessonInclude, rescheduledTo: true },
     });
   }
 
   async assertTeacherOwns(lessonId: string, teacherProfileId: string) {
-    const lesson = await this.findById(lessonId);
+    const lesson = await this.prisma.lesson.findUnique({
+      where: { id: lessonId },
+      select: { teacherId: true },
+    });
+    if (!lesson) throw new NotFoundException('Lesson not found');
     if (lesson.teacherId !== teacherProfileId) {
       throw new ForbiddenException('You do not have access to this lesson');
     }
-    return lesson;
+  }
+
+  async getTeacherProfileId(userId: string): Promise<string> {
+    const profile = await this.prisma.teacherProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!profile) throw new ForbiddenException('Teacher profile not found');
+    return profile.id;
   }
 }

@@ -1,9 +1,10 @@
 import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
-import { CreateUserDto } from './create-user.dto';
+import { CreateLiteUserDto } from './create-lite-user.dto';
 
-export class CreateStudentDto extends CreateUserDto {
+export class CreateStudentDto extends CreateLiteUserDto {
+  @IsOptional()
   @IsString()
-  parentUserId: string;
+  parentUserId?: string;
 
   @IsOptional()
   @IsInt()

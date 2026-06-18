@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { Prisma, Role } from '../../../generated/client';
 import { CreateUserDto } from './dto/create-user.dto';
+import { CreateLiteUserDto } from './dto/create-lite-user.dto';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -21,20 +22,20 @@ export class UsersService {
       data: {
         ...dto,
         password: hashedPassword,
-        role: Role.TEACHER,
+        roles: [Role.TEACHER],
         teacherProfile: { create: {} },
       },
       include: { teacherProfile: true },
     });
   }
 
-  async createParent(dto: CreateUserDto) {
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
+  async createParent(dto: CreateLiteUserDto) {
+    const password = dto.password ? await bcrypt.hash(dto.password, 10) : null;
     return this.prisma.user.create({
       data: {
         ...dto,
-        password: hashedPassword,
-        role: Role.PARENT,
+        password,
+        roles: [Role.PARENT],
         parentProfile: { create: {} },
       },
       include: { parentProfile: true },
@@ -43,28 +44,34 @@ export class UsersService {
 
   async createStudent(dto: CreateStudentDto) {
     const { parentUserId, age, grade, ...userData } = dto;
-    const parentProfile = await this.prisma.parentProfile.findUnique({
-      where: { userId: parentUserId },
-      select: { id: true },
-    });
 
-    if (!parentProfile) {
-      throw new BadRequestException(
-        'Parent not found. parentUserId must be a user id with role PARENT',
-      );
+    let parentId: string | undefined;
+    if (parentUserId) {
+      const parentProfile = await this.prisma.parentProfile.findUnique({
+        where: { userId: parentUserId },
+        select: { id: true },
+      });
+      if (!parentProfile) {
+        throw new BadRequestException(
+          'Parent not found. parentUserId must be a user id with role PARENT',
+        );
+      }
+      parentId = parentProfile.id;
     }
 
-    const hashedPassword = await bcrypt.hash(userData.password, 10);
+    const password = userData.password
+      ? await bcrypt.hash(userData.password, 10)
+      : null;
     return this.prisma.user.create({
       data: {
         ...userData,
-        password: hashedPassword,
-        role: Role.STUDENT,
+        password,
+        roles: [Role.STUDENT],
         studentProfile: {
           create: {
-            parent: { connect: { id: parentProfile.id } },
             age,
             grade,
+            ...(parentId && { parent: { connect: { id: parentId } } }),
           },
         },
       },
@@ -75,20 +82,28 @@ export class UsersService {
   async createStaff(dto: CreateStaffDto) {
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     return this.prisma.user.create({
-      data: { ...dto, password: hashedPassword },
+      data: {
+        ...dto,
+        password: hashedPassword,
+        // если staff ещё и преподаёт — заводим teacher-профиль
+        ...(dto.roles.includes(Role.TEACHER) && {
+          teacherProfile: { create: {} },
+        }),
+      },
+      include: { teacherProfile: true },
     });
   }
 
   findAll(role?: Role) {
     return this.prisma.user.findMany({
-      where: role ? { role } : undefined,
+      where: role ? { roles: { has: role } } : undefined,
     });
   }
 
   findAllStudents(query: ListStudentsQueryDto) {
     return this.prisma.user.findMany({
       where: {
-        role: Role.STUDENT,
+        roles: { has: Role.STUDENT },
         ...this.searchFilter(query.q),
         ...(query.isActive != null && { isActive: query.isActive }),
         ...(query.teacherId && {
@@ -124,7 +139,7 @@ export class UsersService {
   findAllParents(query: ListUsersQueryDto) {
     return this.prisma.user.findMany({
       where: {
-        role: Role.PARENT,
+        roles: { has: Role.PARENT },
         ...this.searchFilter(query.q),
         ...(query.isActive != null && { isActive: query.isActive }),
       },
@@ -136,7 +151,7 @@ export class UsersService {
   findAllTeachers(query: ListUsersQueryDto) {
     return this.prisma.user.findMany({
       where: {
-        role: Role.TEACHER,
+        roles: { has: Role.TEACHER },
         ...this.searchFilter(query.q),
         ...(query.isActive != null && { isActive: query.isActive }),
       },

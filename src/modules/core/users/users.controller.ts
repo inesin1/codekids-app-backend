@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -13,6 +14,7 @@ import { Role } from '../../../generated/client';
 import { Roles } from '../../common/auth/decorators/roles.decorator';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
+import { CreateLiteUserDto } from './dto/create-lite-user.dto';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -33,7 +35,7 @@ export class UsersController {
 
   @Roles(Role.ADMIN, Role.MANAGER)
   @Post('parents')
-  createParent(@Body() dto: CreateUserDto) {
+  createParent(@Body() dto: CreateLiteUserDto) {
     return this.usersService.createParent(dto);
   }
 
@@ -49,6 +51,7 @@ export class UsersController {
     return this.usersService.createStaff(dto);
   }
 
+  @Roles(Role.ADMIN, Role.MANAGER)
   @Get()
   findAll(@Query('role') role?: Role) {
     return this.usersService.findAll(role);
@@ -60,7 +63,7 @@ export class UsersController {
     @Req() req: Express.Request,
     @Query() query: ListStudentsQueryDto,
   ) {
-    if (req.user!.role === Role.TEACHER) {
+    if (req.user!.roles.includes(Role.TEACHER)) {
       query.teacherId = await this.usersService.getTeacherProfileIdByUserId(
         req.user!.id,
       );
@@ -81,15 +84,22 @@ export class UsersController {
   }
 
   @Get(':id')
-  findById(@Param('id') id: string) {
+  findById(@Req() req: Express.Request, @Param('id') id: string) {
+    const { id: userId, roles } = req.user!;
+    const isStaff = roles.includes(Role.ADMIN) || roles.includes(Role.MANAGER);
+    if (!isStaff && id !== userId) {
+      throw new ForbiddenException();
+    }
     return this.usersService.findById(id);
   }
 
+  @Roles(Role.ADMIN)
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
     return this.usersService.update(id, dto);
   }
 
+  @Roles(Role.ADMIN)
   @Delete(':id')
   delete(@Param('id') id: string) {
     return this.usersService.delete(id);
