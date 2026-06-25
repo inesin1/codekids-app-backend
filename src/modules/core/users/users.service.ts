@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { Prisma, Role } from '../../../generated/client';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -55,32 +59,51 @@ export class UsersService {
     return contacts.map((c) => ({ ...c, id: c.id ?? randomUUID() }));
   }
 
+  // Превращаем P2002 по email в читаемый 409 вместо сырого 500.
+  private async withEmailConflict<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException('User with this email already exists');
+      }
+      throw e;
+    }
+  }
+
   async createTeacher(dto: CreateUserDto) {
     const hashedPassword = await bcrypt.hash(dto.password, 10);
-    return this.prisma.user.create({
-      data: {
-        ...dto,
-        contacts: this.normalizeContacts(dto.contacts),
-        password: hashedPassword,
-        roles: [Role.TEACHER],
-        teacherProfile: { create: {} },
-      },
-      include: { teacherProfile: true },
-    });
+    return this.withEmailConflict(() =>
+      this.prisma.user.create({
+        data: {
+          ...dto,
+          contacts: this.normalizeContacts(dto.contacts),
+          password: hashedPassword,
+          roles: [Role.TEACHER],
+          teacherProfile: { create: {} },
+        },
+        include: { teacherProfile: true },
+      }),
+    );
   }
 
   async createParent(dto: CreateLiteUserDto) {
     const password = dto.password ? await bcrypt.hash(dto.password, 10) : null;
-    return this.prisma.user.create({
-      data: {
-        ...dto,
-        contacts: this.normalizeContacts(dto.contacts),
-        password,
-        roles: [Role.PARENT],
-        parentProfile: { create: {} },
-      },
-      include: { parentProfile: true },
-    });
+    return this.withEmailConflict(() =>
+      this.prisma.user.create({
+        data: {
+          ...dto,
+          contacts: this.normalizeContacts(dto.contacts),
+          password,
+          roles: [Role.PARENT],
+          parentProfile: { create: {} },
+        },
+        include: { parentProfile: true },
+      }),
+    );
   }
 
   async createStudent(dto: CreateStudentDto) {
@@ -103,37 +126,41 @@ export class UsersService {
     const password = userData.password
       ? await bcrypt.hash(userData.password, 10)
       : null;
-    return this.prisma.user.create({
-      data: {
-        ...userData,
-        contacts: this.normalizeContacts(userData.contacts),
-        password,
-        roles: [Role.STUDENT],
-        studentProfile: {
-          create: {
-            ...(birthDate && { birthDate: new Date(birthDate) }),
-            ...(parentId && { parent: { connect: { id: parentId } } }),
+    return this.withEmailConflict(() =>
+      this.prisma.user.create({
+        data: {
+          ...userData,
+          contacts: this.normalizeContacts(userData.contacts),
+          password,
+          roles: [Role.STUDENT],
+          studentProfile: {
+            create: {
+              ...(birthDate && { birthDate: new Date(birthDate) }),
+              ...(parentId && { parent: { connect: { id: parentId } } }),
+            },
           },
         },
-      },
-      include: { studentProfile: true },
-    });
+        include: { studentProfile: true },
+      }),
+    );
   }
 
   async createStaff(dto: CreateStaffDto) {
     const hashedPassword = await bcrypt.hash(dto.password, 10);
-    return this.prisma.user.create({
-      data: {
-        ...dto,
-        contacts: this.normalizeContacts(dto.contacts),
-        password: hashedPassword,
-        // если staff ещё и преподаёт — заводим teacher-профиль
-        ...(dto.roles.includes(Role.TEACHER) && {
-          teacherProfile: { create: {} },
-        }),
-      },
-      include: { teacherProfile: true },
-    });
+    return this.withEmailConflict(() =>
+      this.prisma.user.create({
+        data: {
+          ...dto,
+          contacts: this.normalizeContacts(dto.contacts),
+          password: hashedPassword,
+          // если staff ещё и преподаёт — заводим teacher-профиль
+          ...(dto.roles.includes(Role.TEACHER) && {
+            teacherProfile: { create: {} },
+          }),
+        },
+        include: { teacherProfile: true },
+      }),
+    );
   }
 
   findAll(role?: Role) {
