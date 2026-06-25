@@ -203,12 +203,12 @@ export class UsersService {
     });
   }
 
-  async getTeacherProfileIdByUserId(userId: string): Promise<string> {
-    const profile = await this.prisma.teacherProfile.findUniqueOrThrow({
+  async getTeacherProfileIdByUserId(userId: string): Promise<string | null> {
+    const profile = await this.prisma.teacherProfile.findUnique({
       where: { userId },
       select: { id: true },
     });
-    return profile.id;
+    return profile?.id ?? null;
   }
 
   private searchFilter(q?: string): Prisma.UserWhereInput {
@@ -276,6 +276,10 @@ export class UsersService {
         contacts: this.normalizeContacts(userData.contacts),
         ...(birthDate !== undefined && {
           studentProfile: { update: { birthDate } },
+        }),
+        // назначили роль TEACHER → гарантируем наличие профиля
+        ...(userData.roles?.includes(Role.TEACHER) && {
+          teacherProfile: { upsert: { create: {}, update: {} } },
         }),
       },
       include: { studentProfile: true },

@@ -64,9 +64,12 @@ export class UsersController {
     @Query() query: ListStudentsQueryDto,
   ) {
     if (req.user!.roles.includes(Role.TEACHER)) {
-      query.teacherId = await this.usersService.getTeacherProfileIdByUserId(
+      const teacherId = await this.usersService.getTeacherProfileIdByUserId(
         req.user!.id,
       );
+      // нет teacher-профиля → преподавателю некого показывать
+      if (!teacherId) return [];
+      query.teacherId = teacherId;
     }
     return this.usersService.findAllStudents(query);
   }
