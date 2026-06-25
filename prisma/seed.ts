@@ -7,7 +7,29 @@ const adapter = new PrismaPg({
 });
 const prisma = new PrismaClient({ adapter });
 
+const COURSES = [
+  'Scratch',
+  'Roblox',
+  'Unity',
+  'GameMaker Studio 2',
+  'Python',
+  'Tilda',
+  'HTML/CSS/JS',
+  '3D моделирование',
+  'Английский',
+];
+
+async function seedCourses() {
+  const { count } = await prisma.course.createMany({
+    data: COURSES.map((name) => ({ name })),
+    skipDuplicates: true,
+  });
+  console.log(`Courses seeded: ${count} new, ${COURSES.length} total`);
+}
+
 async function main() {
+  await seedCourses();
+
   const existing = await prisma.user.findFirst({
     where: { roles: { has: Role.ADMIN } },
   });

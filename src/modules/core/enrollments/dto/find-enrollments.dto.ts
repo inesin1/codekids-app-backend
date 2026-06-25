@@ -11,6 +11,10 @@ export class FindEnrollmentsDto {
   studentId?: string;
 
   @IsOptional()
+  @IsString()
+  courseId?: string;
+
+  @IsOptional()
   @ToBoolean()
   @IsBoolean()
   isActive?: boolean;

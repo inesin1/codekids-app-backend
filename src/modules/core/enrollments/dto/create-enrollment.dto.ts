@@ -7,6 +7,9 @@ export class CreateEnrollmentDto {
   @IsString()
   studentId: string;
 
+  @IsString()
+  courseId: string;
+
   @IsNumber()
   @IsPositive()
   lessonPrice: number;

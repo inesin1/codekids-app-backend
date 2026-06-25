@@ -12,6 +12,7 @@ import { UpdateEnrollmentDto } from './dto/update-enrollment.dto';
 const includeProfiles = {
   teacher: { include: { user: { omit: { password: true } } } },
   student: { include: { user: { omit: { password: true } } } },
+  course: true,
 } as const;
 
 @Injectable()
@@ -19,9 +20,13 @@ export class EnrollmentsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(dto: CreateEnrollmentDto) {
-    const [teacher, student] = await Promise.all([
+    const [teacher, student, course] = await Promise.all([
       this.findTeacherProfile(dto.teacherId),
       this.findStudentProfile(dto.studentId),
+      this.prisma.course.findUnique({
+        where: { id: dto.courseId },
+        select: { id: true },
+      }),
     ]);
 
     if (!teacher) {
@@ -36,17 +41,24 @@ export class EnrollmentsService {
       );
     }
 
+    if (!course) {
+      throw new BadRequestException(
+        'courseId must reference an existing course',
+      );
+    }
+
     const existing = await this.prisma.enrollment.findUnique({
       where: {
-        teacherId_studentId: {
+        teacherId_studentId_courseId: {
           teacherId: teacher.id,
           studentId: student.id,
+          courseId: course.id,
         },
       },
     });
     if (existing) {
       throw new ConflictException(
-        'Enrollment already exists for this teacher-student pair',
+        'Enrollment already exists for this teacher-student-course',
       );
     }
 
@@ -65,7 +77,7 @@ export class EnrollmentsService {
         e.code === 'P2002'
       ) {
         throw new ConflictException(
-          'Enrollment already exists for this teacher-student pair',
+          'Enrollment already exists for this teacher-student-course',
         );
       }
 
@@ -74,7 +86,7 @@ export class EnrollmentsService {
         e.code === 'P2003'
       ) {
         throw new BadRequestException(
-          'teacherId and studentId must reference existing profiles',
+          'teacherId, studentId and courseId must reference existing records',
         );
       }
 
@@ -85,12 +97,14 @@ export class EnrollmentsService {
   findAll(filters: {
     teacherId?: string;
     studentId?: string;
+    courseId?: string;
     isActive?: boolean;
   }) {
     return this.prisma.enrollment.findMany({
       where: {
         teacherId: filters.teacherId,
         studentId: filters.studentId,
+        courseId: filters.courseId,
         isActive: filters.isActive,
       },
       include: includeProfiles,

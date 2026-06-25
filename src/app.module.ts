@@ -6,6 +6,7 @@ import { AuthModule } from './modules/common/auth/auth.module';
 import { PrismaModule } from './modules/common/prisma/prisma.module';
 import { UsersModule } from './modules/core/users/users.module';
 import { EnrollmentsModule } from './modules/core/enrollments/enrollments.module';
+import { CoursesModule } from './modules/core/courses/courses.module';
 import { LessonsModule } from './modules/core/lessons/lessons.module';
 import { PayoutsModule } from './modules/core/payouts/payouts.module';
 import { ValidationModule } from './modules/common/validation/validation.module';
@@ -26,6 +27,7 @@ const commonModules = [
 
 const coreModules = [
   UsersModule,
+  CoursesModule,
   EnrollmentsModule,
   LessonsModule,
   PayoutsModule,

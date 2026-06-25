@@ -136,6 +136,9 @@ model Enrollment {
   studentId String
   student   StudentProfile @relation(fields: [studentId], references: [id])
 
+  courseId String
+  course   Course @relation(fields: [courseId], references: [id])
+
   // Индивидуальная стоимость занятия для родителя (списание)
   lessonPrice Decimal @db.Decimal(10, 2)
 
@@ -150,8 +153,9 @@ model Enrollment {
   scheduleTemplates ScheduleTemplate[]
   lessons           Lesson[]
 
-  @@unique([teacherId, studentId])
+  @@unique([teacherId, studentId, courseId])
   @@index([teacherId])
   @@index([studentId])
+  @@index([courseId])
   @@map("enrollments")
 }

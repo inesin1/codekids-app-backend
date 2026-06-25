@@ -1,0 +1,19 @@
+// ============================================================================
+// КУРСЫ / НАПРАВЛЕНИЯ
+// ============================================================================
+// Справочник направлений (Scratch, Python, web и т.д.).
+// Привязывается к Enrollment — «ученик X занимается курсом Y у препода Z».
+
+model Course {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  isActive    Boolean @default(true)
+
+  enrollments Enrollment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("courses")
+}
