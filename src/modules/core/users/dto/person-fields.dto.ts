@@ -1,11 +1,14 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { ContactDto } from './contact.dto';
 
 export class PersonFieldsDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  phone?: string;
-
   @IsString()
   @MaxLength(100)
   firstName: string;
@@ -21,4 +24,10 @@ export class PersonFieldsDto {
   @IsOptional()
   @IsString()
   telegramChatId?: string;
+
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => ContactDto)
+  @ArrayMaxSize(30)
+  contacts?: ContactDto[];
 }

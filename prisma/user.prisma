@@ -13,7 +13,7 @@ enum Role {
 model User {
   id        String   @id @default(cuid())
   email     String?  @unique // null = lite-пользователь без доступа в ЛК
-  phone     String?
+  contacts  Json? // [{ id, label, value }] — кастомные контакты (телефон, мессенджеры и т.д.)
   password  String? // null = вход в ЛК недоступен
   firstName String
   lastName  String
@@ -93,8 +93,7 @@ model StudentProfile {
   parentId String? // null для пробных учеников без оформленного родителя
   parent   ParentProfile? @relation(fields: [parentId], references: [id])
 
-  age   Int?
-  grade String? // класс / уровень
+  birthDate DateTime? @db.Date
 
   enrollments       Enrollment[]
   scheduleTemplates ScheduleTemplate[]

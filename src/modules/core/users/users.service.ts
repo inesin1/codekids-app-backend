@@ -11,16 +11,56 @@ import {
   ListUsersQueryDto,
 } from './dto/list-users-query.dto';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
+import { ContactDto } from './dto/contact.dto';
 
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private static calculateAge(birthDate: Date): number {
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+    return age;
+  }
+
+  // Обогащаем студенческий профиль вычисленным возрастом.
+  private static withAge<T extends { birthDate: Date | null }>(profile: T) {
+    return {
+      ...profile,
+      age: profile.birthDate
+        ? UsersService.calculateAge(profile.birthDate)
+        : null,
+    };
+  }
+
+  private withStudentAge<
+    T extends { studentProfile: { birthDate: Date | null } | null },
+  >(user: T) {
+    if (!user.studentProfile) return user;
+    return {
+      ...user,
+      studentProfile: UsersService.withAge(user.studentProfile),
+    };
+  }
+
+  // Догенерируем id отсутствующим контактам, чтобы фронт мог точечно редактировать.
+  // undefined → поле не трогаем (Prisma пропускает).
+  private normalizeContacts(
+    contacts?: ContactDto[],
+  ): Prisma.InputJsonValue | undefined {
+    if (!contacts) return undefined;
+    return contacts.map((c) => ({ ...c, id: c.id ?? randomUUID() }));
+  }
 
   async createTeacher(dto: CreateUserDto) {
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     return this.prisma.user.create({
       data: {
         ...dto,
+        contacts: this.normalizeContacts(dto.contacts),
         password: hashedPassword,
         roles: [Role.TEACHER],
         teacherProfile: { create: {} },
@@ -34,6 +74,7 @@ export class UsersService {
     return this.prisma.user.create({
       data: {
         ...dto,
+        contacts: this.normalizeContacts(dto.contacts),
         password,
         roles: [Role.PARENT],
         parentProfile: { create: {} },
@@ -43,7 +84,7 @@ export class UsersService {
   }
 
   async createStudent(dto: CreateStudentDto) {
-    const { parentUserId, age, grade, ...userData } = dto;
+    const { parentUserId, birthDate, ...userData } = dto;
 
     let parentId: string | undefined;
     if (parentUserId) {
@@ -65,12 +106,12 @@ export class UsersService {
     return this.prisma.user.create({
       data: {
         ...userData,
+        contacts: this.normalizeContacts(userData.contacts),
         password,
         roles: [Role.STUDENT],
         studentProfile: {
           create: {
-            age,
-            grade,
+            ...(birthDate && { birthDate: new Date(birthDate) }),
             ...(parentId && { parent: { connect: { id: parentId } } }),
           },
         },
@@ -84,6 +125,7 @@ export class UsersService {
     return this.prisma.user.create({
       data: {
         ...dto,
+        contacts: this.normalizeContacts(dto.contacts),
         password: hashedPassword,
         // если staff ещё и преподаёт — заводим teacher-профиль
         ...(dto.roles.includes(Role.TEACHER) && {
@@ -100,8 +142,8 @@ export class UsersService {
     });
   }
 
-  findAllStudents(query: ListStudentsQueryDto) {
-    return this.prisma.user.findMany({
+  async findAllStudents(query: ListStudentsQueryDto) {
+    const students = await this.prisma.user.findMany({
       where: {
         roles: { has: Role.STUDENT },
         ...this.searchFilter(query.q),
@@ -134,6 +176,7 @@ export class UsersService {
       },
       orderBy: { createdAt: 'desc' },
     });
+    return students.map((s) => this.withStudentAge(s));
   }
 
   findAllParents(query: ListUsersQueryDto) {
@@ -179,15 +222,42 @@ export class UsersService {
     };
   }
 
-  findById(id: string) {
-    return this.prisma.user.findUnique({
+  async findById(id: string) {
+    const user = await this.prisma.user.findUnique({
       where: { id },
       include: {
         teacherProfile: true,
-        parentProfile: true,
+        parentProfile: {
+          include: {
+            students: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
+        },
         studentProfile: true,
       },
     });
+    if (!user) return null;
+    return {
+      ...this.withStudentAge(user),
+      ...(user.parentProfile && {
+        parentProfile: {
+          ...user.parentProfile,
+          students: user.parentProfile.students.map((s) =>
+            UsersService.withAge(s),
+          ),
+        },
+      }),
+    };
   }
 
   findByEmail(email: string) {
@@ -197,8 +267,20 @@ export class UsersService {
     });
   }
 
-  update(id: string, dto: UpdateUserDto) {
-    return this.prisma.user.update({ where: { id }, data: dto });
+  async update(id: string, dto: UpdateUserDto) {
+    const { birthDate, ...userData } = dto;
+    const user = await this.prisma.user.update({
+      where: { id },
+      data: {
+        ...userData,
+        contacts: this.normalizeContacts(userData.contacts),
+        ...(birthDate !== undefined && {
+          studentProfile: { update: { birthDate } },
+        }),
+      },
+      include: { studentProfile: true },
+    });
+    return this.withStudentAge(user);
   }
 
   delete(id: string) {
