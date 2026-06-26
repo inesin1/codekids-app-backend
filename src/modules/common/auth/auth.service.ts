@@ -22,10 +22,17 @@ export class AuthService {
       throw new UnauthorizedException('Неверный email или пароль');
     }
 
-    const { password: _password, ...safeUser } = user;
-    const tokens = await this.generateTokens(user.id, user.roles);
+    const roles = UsersService.resolveRoles(user);
+    const {
+      password: _password,
+      teacherProfile: _t,
+      parentProfile: _p,
+      studentProfile: _s,
+      ...safeUser
+    } = user;
+    const tokens = await this.generateTokens(user.id, roles);
 
-    return { ...tokens, user: safeUser };
+    return { ...tokens, user: { ...safeUser, roles } };
   }
 
   async refresh(refreshToken: string) {
@@ -44,6 +51,7 @@ export class AuthService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: stored.userId },
+      include: UsersService.profileExists,
     });
 
     if (!user) {
@@ -52,10 +60,17 @@ export class AuthService {
 
     await this.prisma.refreshToken.delete({ where: { id: stored.id } });
 
-    const { password: _password, ...safeUser } = user;
-    const tokens = await this.generateTokens(user.id, user.roles);
+    const roles = UsersService.resolveRoles(user);
+    const {
+      password: _password,
+      teacherProfile: _t,
+      parentProfile: _p,
+      studentProfile: _s,
+      ...safeUser
+    } = user;
+    const tokens = await this.generateTokens(user.id, roles);
 
-    return { ...tokens, user: safeUser };
+    return { ...tokens, user: { ...safeUser, roles } };
   }
 
   async logout(refreshToken: string) {

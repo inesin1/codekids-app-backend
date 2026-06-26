@@ -48,7 +48,8 @@ describe('AuthService.refresh', () => {
     });
     prisma.user.findUnique.mockResolvedValue({
       id: 'u1',
-      roles: [Role.TEACHER],
+      staffRoles: [],
+      teacherProfile: { userId: 'u1' },
       password: 'hash',
     });
 
@@ -63,6 +64,8 @@ describe('AuthService.refresh', () => {
     expect(result.accessToken).toBe('new.access.token');
     expect(result.refreshToken).toBeDefined();
     expect((result.user as Record<string, unknown>).password).toBeUndefined();
+    // roles выводятся из наличия профиля, а не из колонки
+    expect((result.user as { roles: Role[] }).roles).toEqual([Role.TEACHER]);
   });
 
   it('должен бросать Unauthorized для неизвестного токена', async () => {

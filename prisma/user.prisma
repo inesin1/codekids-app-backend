@@ -17,16 +17,17 @@ model User {
   password  String? // null = вход в ЛК недоступен
   firstName String
   lastName  String
-  roles     Role[]
-  isActive  Boolean  @default(true)
-  avatarUrl String?
+  // только ADMIN/MANAGER. Участие TEACHER/PARENT/STUDENT определяется наличием профиля
+  staffRoles Role[]  @default([])
+  isActive   Boolean @default(true)
+  avatarUrl  String?
 
   telegramChatId String? @unique // для прямых уведомлений пользователю
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Ролевые профили (заполняется один, в зависимости от role)
+  // Ролевые профили — источник правды об участии в домене
   teacherProfile TeacherProfile?
   parentProfile  ParentProfile?
   studentProfile StudentProfile?

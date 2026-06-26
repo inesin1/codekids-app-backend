@@ -50,6 +50,44 @@ export class UsersService {
     };
   }
 
+  // Минимальный select для определения участия по наличию профиля.
+  static readonly profileExists = {
+    teacherProfile: { select: { userId: true } },
+    parentProfile: { select: { userId: true } },
+    studentProfile: { select: { userId: true } },
+  } satisfies Prisma.UserInclude;
+
+  // authz-роли = staffRoles + участие, выведенное из наличия профилей.
+  static resolveRoles(user: {
+    staffRoles: Role[];
+    teacherProfile?: unknown;
+    parentProfile?: unknown;
+    studentProfile?: unknown;
+  }): Role[] {
+    return [
+      ...user.staffRoles,
+      ...(user.teacherProfile ? [Role.TEACHER] : []),
+      ...(user.parentProfile ? [Role.PARENT] : []),
+      ...(user.studentProfile ? [Role.STUDENT] : []),
+    ];
+  }
+
+  // Прикрепляем вычисленные roles к ответу (контракт чтения для фронта неизменен).
+  private static withRoles<
+    T extends {
+      staffRoles: Role[];
+      teacherProfile?: unknown;
+      parentProfile?: unknown;
+      studentProfile?: unknown;
+    },
+  >(user: T) {
+    return { ...user, roles: UsersService.resolveRoles(user) };
+  }
+
+  private static isStaffRole(role: Role): boolean {
+    return role === Role.ADMIN || role === Role.MANAGER;
+  }
+
   // Догенерируем id отсутствующим контактам, чтобы фронт мог точечно редактировать.
   // undefined → поле не трогаем (Prisma пропускает).
   private normalizeContacts(
@@ -76,34 +114,34 @@ export class UsersService {
 
   async createTeacher(dto: CreateUserDto) {
     const hashedPassword = await bcrypt.hash(dto.password, 10);
-    return this.withEmailConflict(() =>
+    const user = await this.withEmailConflict(() =>
       this.prisma.user.create({
         data: {
           ...dto,
           contacts: this.normalizeContacts(dto.contacts),
           password: hashedPassword,
-          roles: [Role.TEACHER],
           teacherProfile: { create: {} },
         },
-        include: { teacherProfile: true },
+        include: UsersService.profileExists,
       }),
     );
+    return UsersService.withRoles(user);
   }
 
   async createParent(dto: CreateLiteUserDto) {
     const password = dto.password ? await bcrypt.hash(dto.password, 10) : null;
-    return this.withEmailConflict(() =>
+    const user = await this.withEmailConflict(() =>
       this.prisma.user.create({
         data: {
           ...dto,
           contacts: this.normalizeContacts(dto.contacts),
           password,
-          roles: [Role.PARENT],
           parentProfile: { create: {} },
         },
-        include: { parentProfile: true },
+        include: { ...UsersService.profileExists, parentProfile: true },
       }),
     );
+    return UsersService.withRoles(user);
   }
 
   async createStudent(dto: CreateStudentDto) {
@@ -124,13 +162,12 @@ export class UsersService {
     const password = userData.password
       ? await bcrypt.hash(userData.password, 10)
       : null;
-    return this.withEmailConflict(() =>
+    const user = await this.withEmailConflict(() =>
       this.prisma.user.create({
         data: {
           ...userData,
           contacts: this.normalizeContacts(userData.contacts),
           password,
-          roles: [Role.STUDENT],
           studentProfile: {
             create: {
               ...(birthDate && { birthDate: new Date(birthDate) }),
@@ -140,50 +177,65 @@ export class UsersService {
             },
           },
         },
-        include: { studentProfile: true },
+        include: { ...UsersService.profileExists, studentProfile: true },
       }),
     );
+    return UsersService.withRoles(this.withStudentAge(user));
   }
 
   async createStaff(dto: CreateStaffDto) {
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
-    return this.withEmailConflict(() =>
+    const { roles, ...userData } = dto;
+    const hashedPassword = await bcrypt.hash(userData.password, 10);
+    const user = await this.withEmailConflict(() =>
       this.prisma.user.create({
         data: {
-          ...dto,
-          contacts: this.normalizeContacts(dto.contacts),
+          ...userData,
+          contacts: this.normalizeContacts(userData.contacts),
           password: hashedPassword,
+          staffRoles: roles.filter((r) => UsersService.isStaffRole(r)),
           // если staff ещё и преподаёт — заводим teacher-профиль
-          ...(dto.roles.includes(Role.TEACHER) && {
+          ...(roles.includes(Role.TEACHER) && {
             teacherProfile: { create: {} },
           }),
         },
-        include: { teacherProfile: true },
+        include: UsersService.profileExists,
       }),
     );
+    return UsersService.withRoles(user);
   }
 
-  findAll(role?: Role) {
-    return this.prisma.user.findMany({
-      where: role ? { roles: { has: role } } : undefined,
+  async findAll(role?: Role) {
+    const users = await this.prisma.user.findMany({
+      where: role ? this.roleFilter(role) : undefined,
+      include: UsersService.profileExists,
     });
+    return users.map((u) => UsersService.withRoles(u));
+  }
+
+  // Маппинг роли в фильтр: staff — по колонке, участники — по наличию профиля.
+  private roleFilter(role: Role): Prisma.UserWhereInput {
+    if (UsersService.isStaffRole(role)) return { staffRoles: { has: role } };
+    if (role === Role.TEACHER) return { teacherProfile: { isNot: null } };
+    if (role === Role.PARENT) return { parentProfile: { isNot: null } };
+    return { studentProfile: { isNot: null } };
   }
 
   async findAllStudents(query: ListStudentsQueryDto) {
     const students = await this.prisma.user.findMany({
       where: {
-        roles: { has: Role.STUDENT },
         ...this.searchFilter(query.q),
         ...(query.isActive != null && { isActive: query.isActive }),
-        ...(query.teacherId && {
-          studentProfile: {
-            enrollments: {
-              some: { teacherId: query.teacherId, isActive: true },
-            },
-          },
-        }),
+        studentProfile: query.teacherId
+          ? {
+              enrollments: {
+                some: { teacherId: query.teacherId, isActive: true },
+              },
+            }
+          : { isNot: null },
       },
       include: {
+        teacherProfile: { select: { userId: true } },
+        parentProfile: { select: { userId: true } },
         studentProfile: {
           include: {
             parent: {
@@ -203,31 +255,33 @@ export class UsersService {
       },
       orderBy: { createdAt: 'desc' },
     });
-    return students.map((s) => this.withStudentAge(s));
+    return students.map((s) => UsersService.withRoles(this.withStudentAge(s)));
   }
 
-  findAllParents(query: ListUsersQueryDto) {
-    return this.prisma.user.findMany({
+  async findAllParents(query: ListUsersQueryDto) {
+    const parents = await this.prisma.user.findMany({
       where: {
-        roles: { has: Role.PARENT },
+        parentProfile: { isNot: null },
         ...this.searchFilter(query.q),
         ...(query.isActive != null && { isActive: query.isActive }),
       },
-      include: { parentProfile: true },
+      include: { ...UsersService.profileExists, parentProfile: true },
       orderBy: { createdAt: 'desc' },
     });
+    return parents.map((u) => UsersService.withRoles(u));
   }
 
-  findAllTeachers(query: ListUsersQueryDto) {
-    return this.prisma.user.findMany({
+  async findAllTeachers(query: ListUsersQueryDto) {
+    const teachers = await this.prisma.user.findMany({
       where: {
-        roles: { has: Role.TEACHER },
+        teacherProfile: { isNot: null },
         ...this.searchFilter(query.q),
         ...(query.isActive != null && { isActive: query.isActive }),
       },
-      include: { teacherProfile: true },
+      include: UsersService.profileExists,
       orderBy: { createdAt: 'desc' },
     });
+    return teachers.map((u) => UsersService.withRoles(u));
   }
 
   private searchFilter(q?: string): Prisma.UserWhereInput {
@@ -266,7 +320,7 @@ export class UsersService {
       },
     });
     if (!user) return null;
-    return {
+    return UsersService.withRoles({
       ...this.withStudentAge(user),
       ...(user.parentProfile && {
         parentProfile: {
@@ -276,34 +330,38 @@ export class UsersService {
           ),
         },
       }),
-    };
+    });
   }
 
   findByEmail(email: string) {
     return this.prisma.user.findUnique({
       where: { email },
       omit: { password: false },
+      include: UsersService.profileExists,
     });
   }
 
   async update(id: string, dto: UpdateUserDto) {
-    const { birthDate, ...userData } = dto;
+    const { birthDate, roles, ...userData } = dto;
     const user = await this.prisma.user.update({
       where: { id },
       data: {
         ...userData,
         contacts: this.normalizeContacts(userData.contacts),
+        ...(roles && {
+          staffRoles: roles.filter((r) => UsersService.isStaffRole(r)),
+        }),
         ...(birthDate !== undefined && {
           studentProfile: { update: { birthDate } },
         }),
-        // назначили роль TEACHER → гарантируем наличие профиля
-        ...(userData.roles?.includes(Role.TEACHER) && {
+        // назначили роль TEACHER → гарантируем наличие профиля (additive)
+        ...(roles?.includes(Role.TEACHER) && {
           teacherProfile: { upsert: { create: {}, update: {} } },
         }),
       },
-      include: { studentProfile: true },
+      include: { ...UsersService.profileExists, studentProfile: true },
     });
-    return this.withStudentAge(user);
+    return UsersService.withRoles(this.withStudentAge(user));
   }
 
   delete(id: string) {
