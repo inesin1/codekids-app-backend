@@ -31,7 +31,7 @@ async function main() {
   await seedCourses();
 
   const existing = await prisma.user.findFirst({
-    where: { roles: { has: Role.ADMIN } },
+    where: { staffRoles: { has: Role.ADMIN } },
   });
   if (existing) {
     console.log(`Admin already exists: ${existing.email}`);
@@ -44,7 +44,7 @@ async function main() {
       password: await bcrypt.hash('1Gb128OP', 10),
       firstName: 'Tech',
       lastName: 'Admin',
-      roles: [Role.ADMIN],
+      staffRoles: [Role.ADMIN],
     },
   });
 
