@@ -342,25 +342,36 @@ export class UsersService {
   }
 
   async update(id: string, dto: UpdateUserDto) {
-    const { birthDate, roles, ...userData } = dto;
-    const user = await this.prisma.user.update({
-      where: { id },
-      data: {
-        ...userData,
-        contacts: this.normalizeContacts(userData.contacts),
-        ...(roles && {
-          staffRoles: roles.filter((r) => UsersService.isStaffRole(r)),
-        }),
-        ...(birthDate !== undefined && {
-          studentProfile: { update: { birthDate } },
-        }),
-        // назначили роль TEACHER → гарантируем наличие профиля (additive)
-        ...(roles?.includes(Role.TEACHER) && {
-          teacherProfile: { upsert: { create: {}, update: {} } },
-        }),
-      },
-      include: { ...UsersService.profileExists, studentProfile: true },
-    });
+    const { birthDate, roles, password, ...userData } = dto;
+
+    // Выдача доступа в ЛК: пароль только парой с email (both-or-neither).
+    if (password != null && userData.email == null) {
+      throw new BadRequestException('email is required to grant portal access');
+    }
+    const hashedPassword =
+      password != null ? await bcrypt.hash(password, 10) : undefined;
+
+    const user = await this.withEmailConflict(() =>
+      this.prisma.user.update({
+        where: { id },
+        data: {
+          ...userData,
+          ...(hashedPassword !== undefined && { password: hashedPassword }),
+          contacts: this.normalizeContacts(userData.contacts),
+          ...(roles && {
+            staffRoles: roles.filter((r) => UsersService.isStaffRole(r)),
+          }),
+          ...(birthDate !== undefined && {
+            studentProfile: { update: { birthDate } },
+          }),
+          // назначили роль TEACHER → гарантируем наличие профиля (additive)
+          ...(roles?.includes(Role.TEACHER) && {
+            teacherProfile: { upsert: { create: {}, update: {} } },
+          }),
+        },
+        include: { ...UsersService.profileExists, studentProfile: true },
+      }),
+    );
     return UsersService.withRoles(this.withStudentAge(user));
   }
 
