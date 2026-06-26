@@ -5,8 +5,8 @@
 model TelegramGroup {
   id String @id @default(cuid())
 
-  studentId String         @unique
-  student   StudentProfile @relation(fields: [studentId], references: [id])
+  studentId String         @unique // userId ученика
+  student   StudentProfile @relation(fields: [studentId], references: [userId])
 
   telegramChatId String @unique // ID чата/группы в Telegram
 

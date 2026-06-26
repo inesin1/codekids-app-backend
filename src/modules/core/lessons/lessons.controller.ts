@@ -60,10 +60,7 @@ export class LessonsController {
   @Post(':id/complete')
   async complete(@Req() req: Express.Request, @Param('id') id: string) {
     if (!this.isStaff(req.user!)) {
-      const teacherId = await this.lessonsService.getTeacherProfileId(
-        req.user!.id,
-      );
-      await this.lessonsService.assertTeacherOwns(id, teacherId);
+      await this.lessonsService.assertTeacherOwns(id, req.user!.id);
     }
     return this.lessonsService.complete(id);
   }
@@ -89,27 +86,17 @@ export class LessonsController {
       return undefined;
     }
     if (user.roles.includes(Role.TEACHER)) {
-      return {
-        teacherProfileId: await this.lessonsService.getTeacherProfileId(
-          user.id,
-        ),
-      };
+      return { teacherUserId: user.id };
     }
     if (user.roles.includes(Role.PARENT)) {
-      const profile = await this.prisma.parentProfile.findUnique({
-        where: { userId: user.id },
-        include: { students: { select: { id: true } } },
+      const students = await this.prisma.studentProfile.findMany({
+        where: { parentId: user.id },
+        select: { userId: true },
       });
-      if (!profile) throw new ForbiddenException();
-      return { studentProfileIds: profile.students.map((s) => s.id) };
+      return { studentUserIds: students.map((s) => s.userId) };
     }
     if (user.roles.includes(Role.STUDENT)) {
-      const profile = await this.prisma.studentProfile.findUnique({
-        where: { userId: user.id },
-        select: { id: true },
-      });
-      if (!profile) throw new ForbiddenException();
-      return { studentProfileIds: [profile.id] };
+      return { studentUserIds: [user.id] };
     }
     throw new ForbiddenException();
   }

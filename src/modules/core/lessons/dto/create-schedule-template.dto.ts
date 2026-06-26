@@ -32,9 +32,11 @@ export class CreateScheduleTemplateDto {
   @IsString()
   enrollmentId: string;
 
+  // userId преподавателя
   @IsString()
   teacherId: string;
 
+  // userId ученика
   @IsString()
   studentId: string;
 

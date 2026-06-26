@@ -44,8 +44,7 @@ model User {
 // Профиль преподавателя
 // ---------------------------------------------------------------------------
 model TeacherProfile {
-  id     String @id @default(cuid())
-  userId String @unique
+  userId String @id
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Связки «преподаватель — ученик» с индивидуальными ставками
@@ -64,8 +63,7 @@ model TeacherProfile {
 // Профиль родителя
 // ---------------------------------------------------------------------------
 model ParentProfile {
-  id     String @id @default(cuid())
-  userId String @unique
+  userId String @id
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Баланс (в рублях, может быть отрицательным = задолженность)
@@ -86,12 +84,11 @@ model ParentProfile {
 // Профиль ученика
 // ---------------------------------------------------------------------------
 model StudentProfile {
-  id     String @id @default(cuid())
-  userId String @unique
+  userId String @id
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  parentId String? // null для пробных учеников без оформленного родителя
-  parent   ParentProfile? @relation(fields: [parentId], references: [id])
+  parentId String? // userId родителя; null для пробных учеников без оформленного родителя
+  parent   ParentProfile? @relation(fields: [parentId], references: [userId])
 
   birthDate DateTime? @db.Date
 
@@ -129,11 +126,11 @@ model RefreshToken {
 model Enrollment {
   id String @id @default(cuid())
 
-  teacherId String
-  teacher   TeacherProfile @relation(fields: [teacherId], references: [id])
+  teacherId String // userId преподавателя
+  teacher   TeacherProfile @relation(fields: [teacherId], references: [userId])
 
-  studentId String
-  student   StudentProfile @relation(fields: [studentId], references: [id])
+  studentId String // userId ученика
+  student   StudentProfile @relation(fields: [studentId], references: [userId])
 
   courseId String
   course   Course @relation(fields: [courseId], references: [id])

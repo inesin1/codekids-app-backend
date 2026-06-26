@@ -9,8 +9,8 @@
 model Payment {
   id String @id @default(cuid())
 
-  parentId String
-  parent   ParentProfile @relation(fields: [parentId], references: [id])
+  parentId String // userId родителя
+  parent   ParentProfile @relation(fields: [parentId], references: [userId])
 
   amount      Decimal @db.Decimal(12, 2) // сумма пополнения
   description String? // комментарий
@@ -36,8 +36,8 @@ enum TransactionType {
 model Transaction {
   id String @id @default(cuid())
 
-  parentId String
-  parent   ParentProfile @relation(fields: [parentId], references: [id])
+  parentId String // userId родителя
+  parent   ParentProfile @relation(fields: [parentId], references: [userId])
 
   lessonId String? @unique
   lesson   Lesson? @relation(fields: [lessonId], references: [id])
@@ -69,8 +69,8 @@ enum PayoutStatus {
 model Payout {
   id String @id @default(cuid())
 
-  teacherId String
-  teacher   TeacherProfile @relation(fields: [teacherId], references: [id])
+  teacherId String // userId преподавателя
+  teacher   TeacherProfile @relation(fields: [teacherId], references: [userId])
 
   // Период выплаты
   periodStart DateTime

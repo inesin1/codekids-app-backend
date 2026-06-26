@@ -62,7 +62,6 @@ export class MaterialsController {
   ) {
     if (this.isStaff(user)) return;
     if (!lessonId) throw new ForbiddenException();
-    const teacherId = await this.lessonsService.getTeacherProfileId(user.id);
-    await this.lessonsService.assertTeacherOwns(lessonId, teacherId);
+    await this.lessonsService.assertTeacherOwns(lessonId, user.id);
   }
 }

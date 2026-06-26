@@ -51,8 +51,7 @@ export class ReportsController {
     return user.roles.includes(Role.ADMIN) || user.roles.includes(Role.MANAGER);
   }
 
-  private async assertTeacherOwns(userId: string, lessonId: string) {
-    const teacherId = await this.lessonsService.getTeacherProfileId(userId);
-    await this.lessonsService.assertTeacherOwns(lessonId, teacherId);
+  private assertTeacherOwns(userId: string, lessonId: string) {
+    return this.lessonsService.assertTeacherOwns(lessonId, userId);
   }
 }

@@ -140,7 +140,7 @@ export class PayoutsService {
       periodStart?: string;
       periodEnd?: string;
     },
-    scope?: { teacherProfileId: string },
+    scope?: { teacherUserId: string },
   ) {
     const where: Prisma.PayoutWhereInput = {};
 
@@ -153,8 +153,8 @@ export class PayoutsService {
       where.periodEnd = { lte: new Date(filters.periodEnd) };
     }
 
-    if (scope?.teacherProfileId) {
-      where.teacherId = scope.teacherProfileId;
+    if (scope?.teacherUserId) {
+      where.teacherId = scope.teacherUserId;
     }
 
     return this.prisma.payout.findMany({

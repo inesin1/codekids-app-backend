@@ -142,7 +142,7 @@ export class LessonsService {
       teacherId?: string;
       studentId?: string;
     },
-    scope?: { teacherProfileId?: string; studentProfileIds?: string[] },
+    scope?: { teacherUserId?: string; studentUserIds?: string[] },
   ) {
     const where: Prisma.LessonWhereInput = {};
 
@@ -157,10 +157,10 @@ export class LessonsService {
     }
 
     // Role-based scope
-    if (scope?.teacherProfileId) {
-      where.teacherId = scope.teacherProfileId;
-    } else if (scope?.studentProfileIds?.length) {
-      where.studentId = { in: scope.studentProfileIds };
+    if (scope?.teacherUserId) {
+      where.teacherId = scope.teacherUserId;
+    } else if (scope?.studentUserIds?.length) {
+      where.studentId = { in: scope.studentUserIds };
     }
 
     return this.prisma.lesson.findMany({
@@ -172,7 +172,7 @@ export class LessonsService {
 
   async findById(
     id: string,
-    scope?: { teacherProfileId?: string; studentProfileIds?: string[] },
+    scope?: { teacherUserId?: string; studentUserIds?: string[] },
   ) {
     const lesson = await this.prisma.lesson.findUnique({
       where: { id },
@@ -180,15 +180,12 @@ export class LessonsService {
     });
     if (!lesson) throw new NotFoundException('Lesson not found');
 
-    if (
-      scope?.teacherProfileId &&
-      lesson.teacherId !== scope.teacherProfileId
-    ) {
+    if (scope?.teacherUserId && lesson.teacherId !== scope.teacherUserId) {
       throw new ForbiddenException('You do not have access to this lesson');
     }
     if (
-      scope?.studentProfileIds &&
-      !scope.studentProfileIds.includes(lesson.studentId)
+      scope?.studentUserIds &&
+      !scope.studentUserIds.includes(lesson.studentId)
     ) {
       throw new ForbiddenException('You do not have access to this lesson');
     }
@@ -229,7 +226,7 @@ export class LessonsService {
     // Financial transaction in a single DB transaction
     return this.prisma.$transaction(async (tx) => {
       const student = await tx.studentProfile.findUniqueOrThrow({
-        where: { id: lesson.studentId },
+        where: { userId: lesson.studentId },
       });
 
       if (!student.parentId) {
@@ -239,20 +236,20 @@ export class LessonsService {
       }
 
       const parent = await tx.parentProfile.findUniqueOrThrow({
-        where: { id: student.parentId },
+        where: { userId: student.parentId },
       });
 
       const balanceBefore = parent.balance;
       const balanceAfter = balanceBefore.sub(price);
 
       await tx.parentProfile.update({
-        where: { id: parent.id },
+        where: { userId: parent.userId },
         data: { balance: balanceAfter },
       });
 
       await tx.transaction.create({
         data: {
-          parentId: parent.id,
+          parentId: parent.userId,
           lessonId: id,
           type: TransactionType.LESSON_CHARGE,
           amount: price.negated(),
@@ -338,23 +335,14 @@ export class LessonsService {
     });
   }
 
-  async assertTeacherOwns(lessonId: string, teacherProfileId: string) {
+  async assertTeacherOwns(lessonId: string, teacherUserId: string) {
     const lesson = await this.prisma.lesson.findUnique({
       where: { id: lessonId },
       select: { teacherId: true },
     });
     if (!lesson) throw new NotFoundException('Lesson not found');
-    if (lesson.teacherId !== teacherProfileId) {
+    if (lesson.teacherId !== teacherUserId) {
       throw new ForbiddenException('You do not have access to this lesson');
     }
-  }
-
-  async getTeacherProfileId(userId: string): Promise<string> {
-    const profile = await this.prisma.teacherProfile.findUnique({
-      where: { userId },
-      select: { id: true },
-    });
-    if (!profile) throw new ForbiddenException('Teacher profile not found');
-    return profile.id;
   }
 }

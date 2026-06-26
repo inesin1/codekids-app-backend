@@ -22,11 +22,11 @@ model ScheduleTemplate {
   enrollmentId String
   enrollment   Enrollment @relation(fields: [enrollmentId], references: [id])
 
-  teacherId String
-  teacher   TeacherProfile @relation(fields: [teacherId], references: [id])
+  teacherId String // userId преподавателя
+  teacher   TeacherProfile @relation(fields: [teacherId], references: [userId])
 
-  studentId String
-  student   StudentProfile @relation(fields: [studentId], references: [id])
+  studentId String // userId ученика
+  student   StudentProfile @relation(fields: [studentId], references: [userId])
 
   isActive Boolean @default(true)
 
@@ -84,11 +84,11 @@ model Lesson {
   enrollmentId String
   enrollment   Enrollment @relation(fields: [enrollmentId], references: [id])
 
-  teacherId String
-  teacher   TeacherProfile @relation(fields: [teacherId], references: [id])
+  teacherId String // userId преподавателя
+  teacher   TeacherProfile @relation(fields: [teacherId], references: [userId])
 
-  studentId String
-  student   StudentProfile @relation(fields: [studentId], references: [id])
+  studentId String // userId ученика
+  student   StudentProfile @relation(fields: [studentId], references: [userId])
 
   // Дата и время
   scheduledAt     DateTime // точная дата и время начала

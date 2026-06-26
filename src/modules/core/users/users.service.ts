@@ -109,18 +109,16 @@ export class UsersService {
   async createStudent(dto: CreateStudentDto) {
     const { parentUserId, birthDate, ...userData } = dto;
 
-    let parentId: string | undefined;
     if (parentUserId) {
       const parentProfile = await this.prisma.parentProfile.findUnique({
         where: { userId: parentUserId },
-        select: { id: true },
+        select: { userId: true },
       });
       if (!parentProfile) {
         throw new BadRequestException(
           'Parent not found. parentUserId must be a user id with role PARENT',
         );
       }
-      parentId = parentProfile.id;
     }
 
     const password = userData.password
@@ -136,7 +134,9 @@ export class UsersService {
           studentProfile: {
             create: {
               ...(birthDate && { birthDate: new Date(birthDate) }),
-              ...(parentId && { parent: { connect: { id: parentId } } }),
+              ...(parentUserId && {
+                parent: { connect: { userId: parentUserId } },
+              }),
             },
           },
         },
@@ -228,14 +228,6 @@ export class UsersService {
       include: { teacherProfile: true },
       orderBy: { createdAt: 'desc' },
     });
-  }
-
-  async getTeacherProfileIdByUserId(userId: string): Promise<string | null> {
-    const profile = await this.prisma.teacherProfile.findUnique({
-      where: { userId },
-      select: { id: true },
-    });
-    return profile?.id ?? null;
   }
 
   private searchFilter(q?: string): Prisma.UserWhereInput {

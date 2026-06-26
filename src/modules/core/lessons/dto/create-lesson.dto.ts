@@ -11,9 +11,11 @@ export class CreateLessonDto {
   @IsString()
   enrollmentId: string;
 
+  // userId преподавателя
   @IsString()
   teacherId: string;
 
+  // userId ученика
   @IsString()
   studentId: string;
 

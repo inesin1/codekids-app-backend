@@ -59,19 +59,15 @@ export class UsersController {
 
   @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER)
   @Get('students')
-  async findAllStudents(
+  findAllStudents(
     @Req() req: Express.Request,
     @Query() query: ListStudentsQueryDto,
   ) {
     const { id: userId, roles } = req.user!;
     const isStaff = roles.includes(Role.ADMIN) || roles.includes(Role.MANAGER);
-    // staff видит всех; чистый препод — только своих учеников
+    // staff видит всех; чистый препод — только своих учеников (teacherId = его userId)
     if (!isStaff && roles.includes(Role.TEACHER)) {
-      const teacherId =
-        await this.usersService.getTeacherProfileIdByUserId(userId);
-      // нет teacher-профиля → преподавателю некого показывать
-      if (!teacherId) return [];
-      query.teacherId = teacherId;
+      query.teacherId = userId;
     }
     return this.usersService.findAllStudents(query);
   }

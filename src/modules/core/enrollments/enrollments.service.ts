@@ -31,13 +31,13 @@ export class EnrollmentsService {
 
     if (!teacher) {
       throw new BadRequestException(
-        'teacherId must be an existing teacher profile id or teacher user id',
+        'teacherId must be a user id with role TEACHER',
       );
     }
 
     if (!student) {
       throw new BadRequestException(
-        'studentId must be an existing student profile id or student user id',
+        'studentId must be a user id with role STUDENT',
       );
     }
 
@@ -50,8 +50,8 @@ export class EnrollmentsService {
     const existing = await this.prisma.enrollment.findUnique({
       where: {
         teacherId_studentId_courseId: {
-          teacherId: teacher.id,
-          studentId: student.id,
+          teacherId: dto.teacherId,
+          studentId: dto.studentId,
           courseId: course.id,
         },
       },
@@ -64,11 +64,7 @@ export class EnrollmentsService {
 
     try {
       return await this.prisma.enrollment.create({
-        data: {
-          ...dto,
-          teacherId: teacher.id,
-          studentId: student.id,
-        },
+        data: dto,
         include: includeProfiles,
       });
     } catch (e) {
@@ -131,17 +127,17 @@ export class EnrollmentsService {
     });
   }
 
-  private findTeacherProfile(id: string) {
-    return this.prisma.teacherProfile.findFirst({
-      where: { OR: [{ id }, { userId: id }] },
-      select: { id: true },
+  private findTeacherProfile(userId: string) {
+    return this.prisma.teacherProfile.findUnique({
+      where: { userId },
+      select: { userId: true },
     });
   }
 
-  private findStudentProfile(id: string) {
-    return this.prisma.studentProfile.findFirst({
-      where: { OR: [{ id }, { userId: id }] },
-      select: { id: true },
+  private findStudentProfile(userId: string) {
+    return this.prisma.studentProfile.findUnique({
+      where: { userId },
+      select: { userId: true },
     });
   }
 }

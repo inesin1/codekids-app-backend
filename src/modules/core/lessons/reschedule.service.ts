@@ -52,16 +52,15 @@ export class RescheduleService {
     teacherId: string,
     studentId: string,
   ) {
-    if (user.roles.includes(Role.TEACHER)) {
-      const profileId = await this.lessonsService.getTeacherProfileId(user.id);
-      if (profileId === teacherId) return;
+    if (user.roles.includes(Role.TEACHER) && user.id === teacherId) {
+      return;
     }
     if (user.roles.includes(Role.PARENT)) {
       const parent = await this.prisma.parentProfile.findUnique({
         where: { userId: user.id },
-        select: { students: { select: { id: true } } },
+        select: { students: { select: { userId: true } } },
       });
-      if (parent?.students.some((s) => s.id === studentId)) return;
+      if (parent?.students.some((s) => s.userId === studentId)) return;
     }
     throw new ForbiddenException('You do not have access to this lesson');
   }
