@@ -362,7 +362,9 @@ export class UsersService {
             staffRoles: roles.filter((r) => UsersService.isStaffRole(r)),
           }),
           ...(birthDate !== undefined && {
-            studentProfile: { update: { birthDate } },
+            studentProfile: {
+              update: { birthDate: birthDate ? new Date(birthDate) : null },
+            },
           }),
           // назначили роль TEACHER → гарантируем наличие профиля (additive)
           ...(roles?.includes(Role.TEACHER) && {
