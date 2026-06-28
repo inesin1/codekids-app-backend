@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { LessonsController } from './lessons.controller';
 import { LessonsService } from './lessons.service';
+import { LessonGenerationService } from './lesson-generation.service';
 import { ScheduleTemplatesController } from './schedule-templates.controller';
 import { ScheduleTemplatesService } from './schedule-templates.service';
 import { ReportsController } from './reports.controller';
@@ -20,6 +21,7 @@ import { MaterialsService } from './materials.service';
   ],
   providers: [
     LessonsService,
+    LessonGenerationService,
     ScheduleTemplatesService,
     ReportsService,
     RescheduleService,

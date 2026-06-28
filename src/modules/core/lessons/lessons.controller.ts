@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -12,20 +13,37 @@ import { LessonStatus, Role } from '../../../generated/client';
 import { Roles } from '../../common/auth/decorators/roles.decorator';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LessonsService } from './lessons.service';
+import { LessonGenerationService } from './lesson-generation.service';
 import { CreateLessonDto } from './dto/create-lesson.dto';
+import { GenerateLessonsDto } from './dto/generate-lessons.dto';
+import { UpdateGenerationSettingsDto } from './dto/update-generation-settings.dto';
 import { RescheduleLessonDto } from './dto/reschedule-lesson.dto';
 
 @Controller('lessons')
 export class LessonsController {
   constructor(
     private readonly lessonsService: LessonsService,
+    private readonly lessonGenerationService: LessonGenerationService,
     private readonly prisma: PrismaService,
   ) {}
 
   @Roles(Role.ADMIN, Role.MANAGER)
   @Post('generate')
-  generate() {
-    return this.lessonsService.generate();
+  generate(@Body() dto: GenerateLessonsDto) {
+    return this.lessonsService.generate(dto);
+  }
+
+  // Статические роуты — до @Get(':id'), иначе перехватятся как id
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @Get('generation-settings')
+  getGenerationSettings() {
+    return this.lessonGenerationService.getSettings();
+  }
+
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @Patch('generation-settings')
+  updateGenerationSettings(@Body() dto: UpdateGenerationSettingsDto) {
+    return this.lessonGenerationService.updateSettings(dto);
   }
 
   @Roles(Role.ADMIN, Role.MANAGER)

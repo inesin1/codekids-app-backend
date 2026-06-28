@@ -12,6 +12,7 @@ import {
 } from '../../../generated/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateLessonDto } from './dto/create-lesson.dto';
+import { GenerateLessonsDto } from './dto/generate-lessons.dto';
 import { RescheduleLessonDto } from './dto/reschedule-lesson.dto';
 
 const DAY_OF_WEEK_INDEX: Record<DayOfWeek, number> = {
@@ -53,18 +54,23 @@ export class LessonsService {
     });
   }
 
-  async generate() {
+  async generate(dto: GenerateLessonsDto) {
+    const dateFrom = new Date(dto.dateFrom);
+    const dateTo = new Date(dto.dateTo);
+    if (dateTo < dateFrom) {
+      throw new BadRequestException('dateTo must be on or after dateFrom');
+    }
+
     const templates = await this.prisma.scheduleTemplate.findMany({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        ...(dto.templateIds?.length && { id: { in: dto.templateIds } }),
+      },
       include: {
         enrollment: true,
         slots: { where: { isActive: true } },
       },
     });
-
-    const now = new Date();
-    const endDate = new Date(now);
-    endDate.setDate(endDate.getDate() + 7);
 
     const lessonsToCreate: Prisma.LessonCreateManyInput[] = [];
     const plannedKeys = new Set<string>();
@@ -74,15 +80,19 @@ export class LessonsService {
         const targetDayIndex = DAY_OF_WEEK_INDEX[slot.dayOfWeek];
         const [hours, minutes] = slot.startTime.split(':').map(Number);
 
-        // Find all matching dates in the next 7 days
-        for (let d = new Date(now); d < endDate; d.setDate(d.getDate() + 1)) {
+        // Все совпадающие даты в диапазоне [dateFrom, dateTo] включительно
+        for (
+          let d = new Date(dateFrom);
+          d <= dateTo;
+          d.setDate(d.getDate() + 1)
+        ) {
           if (d.getDay() !== targetDayIndex) continue;
 
           const scheduledAt = new Date(d);
           scheduledAt.setHours(hours, minutes, 0, 0);
 
-          // Skip if in the past
-          if (scheduledAt <= now) continue;
+          // Слот мог выйти за границы диапазона после установки времени
+          if (scheduledAt < dateFrom || scheduledAt > dateTo) continue;
 
           const plannedKey = `${template.id}_${scheduledAt.toISOString()}`;
           if (plannedKeys.has(plannedKey)) continue;
@@ -100,7 +110,7 @@ export class LessonsService {
       }
     }
 
-    if (!lessonsToCreate.length) return { created: 0 };
+    if (!lessonsToCreate.length) return { count: 0 };
 
     // Skip duplicates: same template + same scheduledAt
     const existing = await this.prisma.lesson.findMany({
@@ -108,7 +118,7 @@ export class LessonsService {
         templateId: {
           in: lessonsToCreate.map((l) => l.templateId!).filter(Boolean),
         },
-        scheduledAt: { gte: now, lte: endDate },
+        scheduledAt: { gte: dateFrom, lte: dateTo },
         status: { not: LessonStatus.CANCELED },
       },
       select: { templateId: true, scheduledAt: true },
@@ -125,13 +135,13 @@ export class LessonsService {
         ),
     );
 
-    if (!filtered.length) return { created: 0 };
+    if (!filtered.length) return { count: 0 };
 
     const result = await this.prisma.lesson.createMany({
       data: filtered,
       skipDuplicates: true,
     });
-    return { created: result.count };
+    return { count: result.count };
   }
 
   async findAll(

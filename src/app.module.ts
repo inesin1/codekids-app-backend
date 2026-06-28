@@ -11,9 +11,11 @@ import { LessonsModule } from './modules/core/lessons/lessons.module';
 import { PayoutsModule } from './modules/core/payouts/payouts.module';
 import { ValidationModule } from './modules/common/validation/validation.module';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 
 const commonModules = [
   ConfigModule.forRoot({ isGlobal: true }),
+  ScheduleModule.forRoot(),
   ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
   AuthModule,
   PrismaModule,
