@@ -9,6 +9,7 @@ import {
   RescheduleRequestStatus,
   RescheduleRequestType,
 } from '../../../generated/client';
+import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LessonsService } from './lessons.service';
 import { CreateRescheduleRequestDto } from './dto/create-reschedule-request.dto';
@@ -18,6 +19,7 @@ export class RescheduleService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly lessonsService: LessonsService,
+    private readonly audit: AuditService,
   ) {}
 
   async createRequest(
@@ -34,7 +36,7 @@ export class RescheduleService {
     const lesson = await this.lessonsService.findById(lessonId);
     await this.assertOwnsLesson(user, lesson.teacherId, lesson.studentId);
 
-    return this.prisma.rescheduleRequest.create({
+    const request = await this.prisma.rescheduleRequest.create({
       data: {
         lessonId,
         createdById: user.id,
@@ -44,6 +46,13 @@ export class RescheduleService {
       },
       include: { lesson: true, createdBy: { omit: { password: true } } },
     });
+    this.audit.log({
+      action: 'reschedule_request.created',
+      entityType: 'RescheduleRequest',
+      entityId: request.id,
+      details: { lessonId, type: dto.type, proposedDate: dto.proposedDate },
+    });
+    return request;
   }
 
   // Учитель может заявлять только по своим урокам, родитель — по урокам своих детей
@@ -88,7 +97,7 @@ export class RescheduleService {
     }
 
     // Изменение урока + закрытие заявки атомарно
-    return this.prisma.$transaction(async (tx) => {
+    const approved = await this.prisma.$transaction(async (tx) => {
       if (request.type === RescheduleRequestType.CANCEL) {
         await this.lessonsService.cancelWithin(tx, request.lessonId);
       } else {
@@ -107,6 +116,17 @@ export class RescheduleService {
         include: { lesson: true },
       });
     });
+    this.audit.log({
+      action: 'reschedule_request.approved',
+      entityType: 'RescheduleRequest',
+      entityId: requestId,
+      details: {
+        lessonId: request.lessonId,
+        type: request.type,
+        proposedDate: request.proposedDate?.toISOString(),
+      },
+    });
+    return approved;
   }
 
   async reject(requestId: string, resolvedByUserId: string) {
@@ -116,7 +136,7 @@ export class RescheduleService {
       throw new BadRequestException('Request is already resolved');
     }
 
-    return this.prisma.rescheduleRequest.update({
+    const rejected = await this.prisma.rescheduleRequest.update({
       where: { id: requestId },
       data: {
         status: RescheduleRequestStatus.REJECTED,
@@ -125,6 +145,13 @@ export class RescheduleService {
       },
       include: { lesson: true },
     });
+    this.audit.log({
+      action: 'reschedule_request.rejected',
+      entityType: 'RescheduleRequest',
+      entityId: requestId,
+      details: { lessonId: request.lessonId },
+    });
+    return rejected;
   }
 
   private async findByIdOrThrow(id: string) {

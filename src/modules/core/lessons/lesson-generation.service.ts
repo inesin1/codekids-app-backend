@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DayOfWeek } from '../../../generated/client';
+import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LessonsService } from './lessons.service';
 import { UpdateGenerationSettingsDto } from './dto/update-generation-settings.dto';
@@ -25,6 +26,7 @@ export class LessonGenerationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly lessonsService: LessonsService,
+    private readonly audit: AuditService,
   ) {}
 
   getSettings() {
@@ -35,12 +37,19 @@ export class LessonGenerationService {
     });
   }
 
-  updateSettings(dto: UpdateGenerationSettingsDto) {
-    return this.prisma.lessonGenerationSettings.upsert({
+  async updateSettings(dto: UpdateGenerationSettingsDto) {
+    const settings = await this.prisma.lessonGenerationSettings.upsert({
       where: { id: SETTINGS_ID },
       create: { id: SETTINGS_ID, ...dto },
       update: dto,
     });
+    this.audit.log({
+      action: 'lesson_generation_settings.updated',
+      entityType: 'LessonGenerationSettings',
+      entityId: SETTINGS_ID,
+      details: { ...dto },
+    });
+    return settings;
   }
 
   // Ежедневно проверяем настройки; генерим только в выбранный день недели

@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '../../../generated/client';
+import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
 import { UpdateEnrollmentDto } from './dto/update-enrollment.dto';
@@ -17,7 +18,10 @@ const includeProfiles = {
 
 @Injectable()
 export class EnrollmentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async create(dto: CreateEnrollmentDto) {
     const [teacher, student, course] = await Promise.all([
@@ -63,10 +67,21 @@ export class EnrollmentsService {
     }
 
     try {
-      return await this.prisma.enrollment.create({
+      const enrollment = await this.prisma.enrollment.create({
         data: dto,
         include: includeProfiles,
       });
+      this.audit.log({
+        action: 'enrollment.created',
+        entityType: 'Enrollment',
+        entityId: enrollment.id,
+        details: {
+          teacherId: dto.teacherId,
+          studentId: dto.studentId,
+          courseId: dto.courseId,
+        },
+      });
+      return enrollment;
     } catch (e) {
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&
@@ -120,11 +135,18 @@ export class EnrollmentsService {
 
   async update(id: string, dto: UpdateEnrollmentDto) {
     await this.findById(id);
-    return this.prisma.enrollment.update({
+    const enrollment = await this.prisma.enrollment.update({
       where: { id },
       data: dto,
       include: includeProfiles,
     });
+    this.audit.log({
+      action: 'enrollment.updated',
+      entityType: 'Enrollment',
+      entityId: id,
+      details: { ...dto },
+    });
+    return enrollment;
   }
 
   private findTeacherProfile(userId: string) {

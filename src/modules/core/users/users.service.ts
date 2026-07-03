@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
 } from '@nestjs/common';
+import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { Prisma, Role } from '../../../generated/client';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -20,7 +21,19 @@ import { ContactDto } from './dto/contact.dto';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
+
+  private logUserCreated(userId: string, email: string | null, type: string) {
+    this.audit.log({
+      action: 'user.created',
+      entityType: 'User',
+      entityId: userId,
+      details: { email, type },
+    });
+  }
 
   private static calculateAge(birthDate: Date): number {
     const today = new Date();
@@ -125,6 +138,7 @@ export class UsersService {
         include: UsersService.profileExists,
       }),
     );
+    this.logUserCreated(user.id, user.email, 'teacher');
     return UsersService.withRoles(user);
   }
 
@@ -141,6 +155,7 @@ export class UsersService {
         include: { ...UsersService.profileExists, parentProfile: true },
       }),
     );
+    this.logUserCreated(user.id, user.email, 'parent');
     return UsersService.withRoles(user);
   }
 
@@ -180,6 +195,7 @@ export class UsersService {
         include: { ...UsersService.profileExists, studentProfile: true },
       }),
     );
+    this.logUserCreated(user.id, user.email, 'student');
     return UsersService.withRoles(this.withStudentAge(user));
   }
 
@@ -201,6 +217,7 @@ export class UsersService {
         include: UsersService.profileExists,
       }),
     );
+    this.logUserCreated(user.id, user.email, 'staff');
     return UsersService.withRoles(user);
   }
 
@@ -374,10 +391,29 @@ export class UsersService {
         include: { ...UsersService.profileExists, studentProfile: true },
       }),
     );
+    this.audit.log({
+      action: 'user.updated',
+      entityType: 'User',
+      entityId: id,
+      // без password; выдачу доступа в ЛК фиксируем флагом
+      details: {
+        ...userData,
+        roles,
+        birthDate,
+        ...(password != null && { portalAccessGranted: true }),
+      },
+    });
     return UsersService.withRoles(this.withStudentAge(user));
   }
 
-  delete(id: string) {
-    return this.prisma.user.delete({ where: { id } });
+  async delete(id: string) {
+    const user = await this.prisma.user.delete({ where: { id } });
+    this.audit.log({
+      action: 'user.deleted',
+      entityType: 'User',
+      entityId: id,
+      details: { email: user.email },
+    });
+    return user;
   }
 }

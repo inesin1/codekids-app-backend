@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '../../../generated/client';
+import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { PayoutsService } from './payouts.service';
 
@@ -27,7 +28,10 @@ describe('PayoutsService.calculate', () => {
     prisma = {
       $transaction: jest.fn((cb: (t: TxMock) => unknown) => cb(tx)),
     };
-    service = new PayoutsService(prisma as unknown as PrismaService);
+    service = new PayoutsService(
+      prisma as unknown as PrismaService,
+      { log: jest.fn() } as unknown as AuditService,
+    );
   });
 
   it('должен считать basePay + bonusPay = totalPay', async () => {

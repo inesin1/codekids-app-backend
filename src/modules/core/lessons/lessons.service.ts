@@ -10,6 +10,7 @@ import {
   DayOfWeek,
   TransactionType,
 } from '../../../generated/client';
+import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateLessonDto } from './dto/create-lesson.dto';
 import { GenerateLessonsDto } from './dto/generate-lessons.dto';
@@ -34,10 +35,13 @@ const lessonInclude = {
 
 @Injectable()
 export class LessonsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async create(dto: CreateLessonDto) {
-    return this.prisma.lesson.create({
+    const lesson = await this.prisma.lesson.create({
       data: {
         enrollmentId: dto.enrollmentId,
         teacherId: dto.teacherId,
@@ -52,6 +56,17 @@ export class LessonsService {
       },
       include: lessonInclude,
     });
+    this.audit.log({
+      action: 'lesson.created',
+      entityType: 'Lesson',
+      entityId: lesson.id,
+      details: {
+        scheduledAt: dto.scheduledAt,
+        teacherId: dto.teacherId,
+        studentId: dto.studentId,
+      },
+    });
+    return lesson;
   }
 
   async generate(dto: GenerateLessonsDto) {
@@ -141,6 +156,17 @@ export class LessonsService {
       data: filtered,
       skipDuplicates: true,
     });
+    if (result.count) {
+      this.audit.log({
+        action: 'lesson.generated',
+        entityType: 'Lesson',
+        details: {
+          count: result.count,
+          dateFrom: dto.dateFrom,
+          dateTo: dto.dateTo,
+        },
+      });
+    }
     return { count: result.count };
   }
 
@@ -221,7 +247,7 @@ export class LessonsService {
 
     // price=0 → trial lesson, skip financial transaction
     if (Number(price) === 0) {
-      return this.prisma.lesson.update({
+      const updated = await this.prisma.lesson.update({
         where: { id },
         data: {
           status: LessonStatus.COMPLETED,
@@ -231,10 +257,17 @@ export class LessonsService {
         },
         include: lessonInclude,
       });
+      this.audit.log({
+        action: 'lesson.completed',
+        entityType: 'Lesson',
+        entityId: id,
+        details: { price: 0 },
+      });
+      return updated;
     }
 
     // Financial transaction in a single DB transaction
-    return this.prisma.$transaction(async (tx) => {
+    const completed = await this.prisma.$transaction(async (tx) => {
       const student = await tx.studentProfile.findUniqueOrThrow({
         where: { userId: lesson.studentId },
       });
@@ -279,10 +312,23 @@ export class LessonsService {
         include: lessonInclude,
       });
     });
+    this.audit.log({
+      action: 'lesson.completed',
+      entityType: 'Lesson',
+      entityId: id,
+      details: { price: Number(price), teacherRate: Number(teacherRate) },
+    });
+    return completed;
   }
 
-  cancel(id: string) {
-    return this.cancelWithin(this.prisma, id);
+  async cancel(id: string) {
+    const lesson = await this.cancelWithin(this.prisma, id);
+    this.audit.log({
+      action: 'lesson.canceled',
+      entityType: 'Lesson',
+      entityId: id,
+    });
+    return lesson;
   }
 
   // Вариант для вызова внутри внешней транзакции (см. RescheduleService.approve)
@@ -305,8 +351,17 @@ export class LessonsService {
     });
   }
 
-  reschedule(id: string, dto: RescheduleLessonDto) {
-    return this.prisma.$transaction((tx) => this.rescheduleWithin(tx, id, dto));
+  async reschedule(id: string, dto: RescheduleLessonDto) {
+    const lesson = await this.prisma.$transaction((tx) =>
+      this.rescheduleWithin(tx, id, dto),
+    );
+    this.audit.log({
+      action: 'lesson.rescheduled',
+      entityType: 'Lesson',
+      entityId: id,
+      details: { newDate: dto.newDate, newLessonId: lesson.rescheduledToId },
+    });
+    return lesson;
   }
 
   async rescheduleWithin(

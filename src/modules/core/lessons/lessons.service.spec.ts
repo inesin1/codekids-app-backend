@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { LessonStatus, Prisma } from '../../../generated/client';
+import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LessonsService } from './lessons.service';
 
@@ -41,7 +42,10 @@ describe('LessonsService.complete', () => {
       enrollment: { findUniqueOrThrow: jest.fn() },
       $transaction: jest.fn((cb: (t: typeof tx) => unknown) => cb(tx)),
     };
-    service = new LessonsService(prisma as unknown as PrismaService);
+    service = new LessonsService(
+      prisma as unknown as PrismaService,
+      { log: jest.fn() } as unknown as AuditService,
+    );
   });
 
   it('должен списывать с родителя при платном уроке (price > 0)', async () => {

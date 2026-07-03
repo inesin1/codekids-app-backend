@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, LessonStatus } from '../../../generated/client';
+import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateReportDto } from './dto/create-report.dto';
 import { UpdateReportDto } from './dto/update-report.dto';
@@ -17,6 +18,7 @@ export class ReportsService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
     config: ConfigService,
   ) {
     this.bonusAmount = Number(config.get('BONUS_AMOUNT') ?? 50);
@@ -42,7 +44,7 @@ export class ReportsService {
     const bonusApplied =
       !!lesson.completedAt && this.isWithinBonusWindow(lesson.completedAt);
 
-    return this.prisma.lessonReport.create({
+    const report = await this.prisma.lessonReport.create({
       data: {
         lessonId,
         ...dto,
@@ -52,6 +54,13 @@ export class ReportsService {
           : undefined,
       },
     });
+    this.audit.log({
+      action: 'lesson_report.created',
+      entityType: 'LessonReport',
+      entityId: report.id,
+      details: { lessonId, bonusApplied },
+    });
+    return report;
   }
 
   async findByLessonId(lessonId: string) {
@@ -79,10 +88,17 @@ export class ReportsService {
       );
     }
 
-    return this.prisma.lessonReport.update({
+    const updated = await this.prisma.lessonReport.update({
       where: { lessonId },
       data: dto,
     });
+    this.audit.log({
+      action: 'lesson_report.updated',
+      entityType: 'LessonReport',
+      entityId: report.id,
+      details: { lessonId },
+    });
+    return updated;
   }
 
   private isWithinBonusWindow(completedAt: Date): boolean {

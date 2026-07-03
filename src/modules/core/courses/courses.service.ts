@@ -4,17 +4,28 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '../../../generated/client';
+import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateCourseDto } from './dto/create-course.dto';
 import { UpdateCourseDto } from './dto/update-course.dto';
 
 @Injectable()
 export class CoursesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async create(dto: CreateCourseDto) {
     try {
-      return await this.prisma.course.create({ data: dto });
+      const course = await this.prisma.course.create({ data: dto });
+      this.audit.log({
+        action: 'course.created',
+        entityType: 'Course',
+        entityId: course.id,
+        details: { name: course.name },
+      });
+      return course;
     } catch (e) {
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&
@@ -44,7 +55,17 @@ export class CoursesService {
   async update(id: string, dto: UpdateCourseDto) {
     await this.findById(id);
     try {
-      return await this.prisma.course.update({ where: { id }, data: dto });
+      const course = await this.prisma.course.update({
+        where: { id },
+        data: dto,
+      });
+      this.audit.log({
+        action: 'course.updated',
+        entityType: 'Course',
+        entityId: id,
+        details: { ...dto },
+      });
+      return course;
     } catch (e) {
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&

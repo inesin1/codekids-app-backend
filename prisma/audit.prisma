@@ -5,13 +5,14 @@
 model AuditLog {
   id String @id @default(cuid())
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
+  // null → действие выполнено системой (cron и т.п.)
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
 
-  action      String // "lesson.completed", "payment.created", и т.д.
-  entityType  String // "Lesson", "Payment", "User", ...
-  entityId    String
-  details     Json?  // diff / дополнительная информация
+  action     String // "lesson.completed", "payment.created", и т.д.
+  entityType String // "Lesson", "Payment", "User", ...
+  entityId   String? // null для bulk-операций (генерация занятий)
+  details    Json? // diff / дополнительная информация
 
   ipAddress String?
   userAgent String?

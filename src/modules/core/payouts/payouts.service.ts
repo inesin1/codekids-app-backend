@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, LessonStatus, PayoutStatus } from '../../../generated/client';
+import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CalculatePayoutDto } from './dto/calculate-payout.dto';
 import { CalculateAllPayoutsDto } from './dto/calculate-all-payouts.dto';
@@ -15,7 +16,10 @@ const payoutInclude = {
 
 @Injectable()
 export class PayoutsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async calculate(dto: CalculatePayoutDto) {
     const periodStart = new Date(dto.periodStart);
@@ -25,7 +29,7 @@ export class PayoutsService {
       throw new BadRequestException('periodStart must be before periodEnd');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const payout = await this.prisma.$transaction(async (tx) => {
       // Check overlapping payout for this teacher
       const existing = await tx.payout.findFirst({
         where: {
@@ -86,6 +90,18 @@ export class PayoutsService {
         throw e;
       }
     });
+    this.audit.log({
+      action: 'payout.created',
+      entityType: 'Payout',
+      entityId: payout.id,
+      details: {
+        teacherId: dto.teacherId,
+        periodStart: dto.periodStart,
+        periodEnd: dto.periodEnd,
+        totalPay: Number(payout.totalPay),
+      },
+    });
+    return payout;
   }
 
   async calculateAll(dto: CalculateAllPayoutsDto) {
@@ -174,10 +190,20 @@ export class PayoutsService {
       );
     }
 
-    return this.prisma.payout.update({
+    const paid = await this.prisma.payout.update({
       where: { id },
       data: { status: PayoutStatus.PAID, paidAt: new Date() },
       include: payoutInclude,
     });
+    this.audit.log({
+      action: 'payout.paid',
+      entityType: 'Payout',
+      entityId: id,
+      details: {
+        teacherId: payout.teacherId,
+        totalPay: Number(payout.totalPay),
+      },
+    });
+    return paid;
   }
 }

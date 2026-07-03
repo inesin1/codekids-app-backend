@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DayOfWeek, Prisma } from '../../../generated/client';
+import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateScheduleTemplateDto } from './dto/create-schedule-template.dto';
 import { UpdateScheduleTemplateDto } from './dto/update-schedule-template.dto';
@@ -12,10 +13,13 @@ const scheduleTemplateInclude: Prisma.ScheduleTemplateInclude = {
 
 @Injectable()
 export class ScheduleTemplatesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
-  create(dto: CreateScheduleTemplateDto) {
-    return this.prisma.scheduleTemplate.create({
+  async create(dto: CreateScheduleTemplateDto) {
+    const template = await this.prisma.scheduleTemplate.create({
       data: {
         enrollmentId: dto.enrollmentId,
         teacherId: dto.teacherId,
@@ -30,6 +34,17 @@ export class ScheduleTemplatesService {
       },
       include: scheduleTemplateInclude,
     });
+    this.audit.log({
+      action: 'schedule_template.created',
+      entityType: 'ScheduleTemplate',
+      entityId: template.id,
+      details: {
+        teacherId: dto.teacherId,
+        studentId: dto.studentId,
+        enrollmentId: dto.enrollmentId,
+      },
+    });
+    return template;
   }
 
   findAll(filters: {
@@ -65,7 +80,7 @@ export class ScheduleTemplatesService {
   async update(id: string, dto: UpdateScheduleTemplateDto) {
     await this.findById(id);
 
-    return this.prisma.$transaction(async (tx) => {
+    const template = await this.prisma.$transaction(async (tx) => {
       if (dto.isActive !== undefined) {
         await tx.scheduleTemplate.update({
           where: { id },
@@ -93,11 +108,18 @@ export class ScheduleTemplatesService {
         include: scheduleTemplateInclude,
       });
     });
+    this.audit.log({
+      action: 'schedule_template.updated',
+      entityType: 'ScheduleTemplate',
+      entityId: id,
+      details: { ...dto },
+    });
+    return template;
   }
 
   async deactivate(id: string) {
     await this.findById(id);
-    return this.prisma.$transaction(async (tx) => {
+    const template = await this.prisma.$transaction(async (tx) => {
       await tx.scheduleTemplateSlot.updateMany({
         where: { templateId: id },
         data: { isActive: false },
@@ -109,5 +131,11 @@ export class ScheduleTemplatesService {
         include: scheduleTemplateInclude,
       });
     });
+    this.audit.log({
+      action: 'schedule_template.deactivated',
+      entityType: 'ScheduleTemplate',
+      entityId: id,
+    });
+    return template;
   }
 }
