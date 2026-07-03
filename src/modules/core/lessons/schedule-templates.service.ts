@@ -24,6 +24,7 @@ export class ScheduleTemplatesService {
         enrollmentId: dto.enrollmentId,
         teacherId: dto.teacherId,
         studentId: dto.studentId,
+        timezone: dto.timezone,
         slots: {
           create: dto.slots.map((slot) => ({
             dayOfWeek: slot.dayOfWeek,
@@ -81,10 +82,10 @@ export class ScheduleTemplatesService {
     await this.findById(id);
 
     const template = await this.prisma.$transaction(async (tx) => {
-      if (dto.isActive !== undefined) {
+      if (dto.isActive !== undefined || dto.timezone) {
         await tx.scheduleTemplate.update({
           where: { id },
-          data: { isActive: dto.isActive },
+          data: { isActive: dto.isActive, timezone: dto.timezone },
         });
       }
 

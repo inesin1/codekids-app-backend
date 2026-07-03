@@ -1433,12 +1433,21 @@ components:
           minItems: 1
           items:
             $ref: '#/components/schemas/ScheduleTemplateSlotInput'
+        timezone:
+          type: string
+          description: IANA timezone the slot start times are defined in.
+          default: Europe/Moscow
+          example: Asia/Almaty
 
     UpdateScheduleTemplateDto:
       type: object
       properties:
         isActive:
           type: boolean
+        timezone:
+          type: string
+          description: IANA timezone the slot start times are defined in.
+          example: Asia/Almaty
         slots:
           type: array
           description: Replaces all slots of the template when provided.
@@ -1482,6 +1491,10 @@ components:
           type: string
         isActive:
           type: boolean
+        timezone:
+          type: string
+          description: IANA timezone the slot start times are defined in.
+          example: Asia/Almaty
         slots:
           type: array
           items:

@@ -6,6 +6,7 @@ import {
   IsArray,
   IsOptional,
   IsString,
+  IsTimeZone,
   Matches,
   Min,
   ValidateNested,
@@ -45,4 +46,9 @@ export class CreateScheduleTemplateDto {
   @ValidateNested({ each: true })
   @Type(() => ScheduleTemplateSlotDto)
   slots: ScheduleTemplateSlotDto[];
+
+  // IANA-зона, в которой заданы startTime слотов; нет → дефолт схемы
+  @IsOptional()
+  @IsTimeZone()
+  timezone?: string;
 }

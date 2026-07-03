@@ -1,6 +1,3 @@
-// Загружаем env до любых операций с Date: TZ определяет таймзону всех
-// локальных операций (генерация занятий по слотам, cron)
-import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import helmet from 'helmet';

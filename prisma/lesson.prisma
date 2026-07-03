@@ -30,6 +30,9 @@ model ScheduleTemplate {
 
   isActive Boolean @default(true)
 
+  // IANA-зона, в которой заданы startTime слотов (зона создателя шаблона)
+  timezone String @default("Europe/Moscow")
+
   slots   ScheduleTemplateSlot[]
   lessons Lesson[] // занятия, сгенерированные по этому шаблону
 

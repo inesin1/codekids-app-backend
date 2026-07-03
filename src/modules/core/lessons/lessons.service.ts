@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { DateTime } from 'luxon';
 import {
   Prisma,
   LessonStatus,
@@ -16,14 +17,15 @@ import { CreateLessonDto } from './dto/create-lesson.dto';
 import { GenerateLessonsDto } from './dto/generate-lessons.dto';
 import { RescheduleLessonDto } from './dto/reschedule-lesson.dto';
 
-const DAY_OF_WEEK_INDEX: Record<DayOfWeek, number> = {
-  SUNDAY: 0,
+// luxon weekday: 1 = понедельник … 7 = воскресенье
+const LUXON_WEEKDAY: Record<DayOfWeek, number> = {
   MONDAY: 1,
   TUESDAY: 2,
   WEDNESDAY: 3,
   THURSDAY: 4,
   FRIDAY: 5,
   SATURDAY: 6,
+  SUNDAY: 7,
 };
 
 const lessonInclude = {
@@ -91,20 +93,25 @@ export class LessonsService {
     const plannedKeys = new Set<string>();
 
     for (const template of templates) {
+      // startTime слотов задан в зоне шаблона — считаем дни и время в ней
+      const rangeStart = DateTime.fromJSDate(dateFrom, {
+        zone: template.timezone,
+      }).startOf('day');
+      const rangeEnd = DateTime.fromJSDate(dateTo, { zone: template.timezone });
+
       for (const slot of template.slots) {
-        const targetDayIndex = DAY_OF_WEEK_INDEX[slot.dayOfWeek];
-        const [hours, minutes] = slot.startTime.split(':').map(Number);
+        const targetWeekday = LUXON_WEEKDAY[slot.dayOfWeek];
+        const [hour, minute] = slot.startTime.split(':').map(Number);
 
         // Все совпадающие даты в диапазоне [dateFrom, dateTo] включительно
         for (
-          let d = new Date(dateFrom);
-          d <= dateTo;
-          d.setDate(d.getDate() + 1)
+          let day = rangeStart;
+          day <= rangeEnd;
+          day = day.plus({ days: 1 })
         ) {
-          if (d.getDay() !== targetDayIndex) continue;
+          if (day.weekday !== targetWeekday) continue;
 
-          const scheduledAt = new Date(d);
-          scheduledAt.setHours(hours, minutes, 0, 0);
+          const scheduledAt = day.set({ hour, minute }).toJSDate();
 
           // Слот мог выйти за границы диапазона после установки времени
           if (scheduledAt < dateFrom || scheduledAt > dateTo) continue;
