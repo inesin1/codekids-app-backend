@@ -1,98 +1,143 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# CodeKids App — Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+CRM для школы допобразования (кружки/курсы для детей). Ведёт учеников, преподавателей,
+расписание, занятия, отчёты по занятиям, оплаты родителей и выплаты преподавателям.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Роли: `ADMIN`, `MANAGER`, `TEACHER`, `PARENT`, `STUDENT`. Роль пользователя определяется
+не полем, а наличием ролевого профиля (`TeacherProfile` / `ParentProfile` / `StudentProfile`) +
+опциональным `staffRoles` для ADMIN/MANAGER — см. `prisma/user.prisma`.
 
-## Description
+## Стек
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- **NestJS 11** (Express platform)
+- **Prisma 7** с `@prisma/adapter-pg` (driver adapter, без нативного `prisma-client-js` рантайма) — клиент генерируется в `src/generated/`
+- **PostgreSQL** (прод — Neon)
+- **JWT** (`@nestjs/jwt`) — access-токен в payload, refresh-токен ротируется и хранится в БД (хэш sha256, таблица `refresh_tokens`)
+- **nestjs-cls** — request-scoped контекст, используется `AuditService` чтобы достать актора без прокидывания через каждый слой
+- **@nestjs/schedule** — крон автогенерации занятий по расписанию (`EVERY_DAY_AT_3AM`)
+- **@nestjs/throttler** — rate limit (глобально 100 req/min, `/auth/login` — 5/min, `/auth/refresh` — 10/min)
+- **@sentry/nestjs** — мониторинг ошибок
+- **class-validator / class-transformer** — валидация DTO
+- **Jest + ts-jest** — юнит-тесты (минимальный набор на критичную логику: auth, генерация занятий, начисления)
 
-## Project setup
+## Локальный запуск
 
-```bash
-$ pnpm install
-```
+### Требования
 
-## Compile and run the project
+- Node.js 22 (см. CI/Dockerfile)
+- pnpm 10 (`packageManager` в `package.json`, `corepack enable` подхватит нужную версию)
+- PostgreSQL (локально или Neon-ветка)
+
+### Установка
 
 ```bash
-# development
-$ pnpm run start
-
-# watch mode
-$ pnpm run start:dev
-
-# production mode
-$ pnpm run start:prod
+pnpm install
 ```
 
-## Run tests
+### Переменные окружения
+
+Скопировать `.env.example` → `.env` и заполнить:
 
 ```bash
-# unit tests
-$ pnpm run test
-
-# e2e tests
-$ pnpm run test:e2e
-
-# test coverage
-$ pnpm run test:cov
+DATABASE_URL=            # postgres connection string
+JWT_SECRET=               # openssl rand -hex 32
+JWT_ACCESS_TTL="15m"
+JWT_REFRESH_TTL="30d"
+BONUS_AMOUNT="50"          # премия преподавателю за отчёт по занятию, отправленный вовремя
+BONUS_WINDOW_HOURS="24"    # окно, в течение которого отчёт считается «быстрым»
+SENTRY_DSN=                # пусто локально — Sentry молчит и не шлёт dev-ошибки в прод-проект
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### Миграции и генерация клиента
 
 ```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
+pnpm exec prisma generate       # сгенерировать клиент в src/generated
+pnpm exec prisma migrate dev    # прогнать миграции локально (создаст новую при изменении схемы)
+pnpm exec prisma db seed        # прогнать prisma/seed.ts (использует tsx, настроено в prisma.config.ts)
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Схема Prisma разбита на несколько файлов в `prisma/` (`user.prisma`, `course.prisma`,
+`lesson.prisma`, `payment.prisma`, `audit.prisma`, `telegram.prisma`) — это multi-file schema
+Prisma 7, `prisma/schema.prisma` содержит только `generator`/`datasource`.
 
-## Resources
+### Запуск
 
-Check out a few resources that may come in handy when working with NestJS:
+```bash
+pnpm dev     # nest start --watch
+pnpm debug   # + node --inspect
+pnpm start   # без watch
+pnpm prod    # node dist/main, после pnpm build
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+API поднимается на `PORT` (по умолчанию 3000) с префиксом `/api`. Health-check: `GET /api/check`.
 
-## Support
+## Скрипты
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+| Команда | Что делает |
+|---|---|
+| `pnpm build` | `nest build` → `dist/` |
+| `pnpm dev` | dev-сервер с watch |
+| `pnpm lint` | eslint --fix по `src`, `apps`, `libs`, `test` |
+| `pnpm format` | prettier --write |
+| `pnpm test` | юнит-тесты (jest, `rootDir: src`, файлы `*.spec.ts`) |
+| `pnpm test:cov` | тесты с coverage |
+| `pnpm test:e2e` | e2e (`test/jest-e2e.json`) |
 
-## Stay in touch
+## Структура проекта
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+```
+src/
+  main.ts                  # bootstrap: глобальный prefix /api, CORS, helmet
+  instrument.ts             # Sentry.init(), импортируется первым в main.ts
+  app.module.ts              # сборка всех модулей
+  health.controller.ts        # GET /api/check
+  generated/                 # Prisma client (генерируется, не редактировать руками)
+  modules/
+    common/
+      auth/                  # login/refresh/logout, JwtAuthGuard + RolesGuard как APP_GUARD
+      prisma/                # PrismaService (обёртка над PrismaClient + adapter-pg)
+      audit/                 # AuditLog — читает актора из CLS-контекста запроса
+      validation/             # ValidationPipe konfig + кастомные исключения
+    core/
+      users/                 # пользователи, ролевые профили
+      courses/                # справочник направлений
+      enrollments/            # связка teacher–student–course, индивидуальные ставки/цены
+      lessons/                # расписание (ScheduleTemplate), занятия, отчёты, материалы,
+                                # заявки на перенос/отмену, автогенерация по крону
+      payouts/                # выплаты преподавателям
+prisma/
+  *.prisma                    # схема (multi-file), см. выше
+  migrations/                  # SQL-миграции
+  seed.ts                      # dev-сиды
+```
 
-## License
+## Авторизация
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- `POST /api/auth/login` — email+password → `{ accessToken, refreshToken, user }`
+- `POST /api/auth/refresh` — обменивает refresh-токен на новую пару (ротация: старый удаляется из БД)
+- `POST /api/auth/logout` — удаляет refresh-токен из БД
+- `JwtAuthGuard` глобальный (`APP_GUARD`), эндпоинты открываются декоратором `@Public()`
+- Роли проверяются `RolesGuard` через `@Roles(...)`, decode из JWT payload (`sub`, `roles`)
+- Refresh-токен хранится в БД только в виде sha256-хэша, сам токен — 32 случайных байта (hex)
+
+## Деплой
+
+- **Railway**, сборка через `Dockerfile` (multi-stage: build → prune prod deps → runner на `node:22-alpine`)
+- Контейнер на старте гонит `prisma migrate deploy` и только потом стартует `node dist/main` (см. `CMD` в Dockerfile) — миграции применяются автоматически при каждом деплое, ручного шага нет
+- БД — Neon (Postgres), `DATABASE_URL` передаётся через переменные окружения Railway
+- Порт берётся из `process.env.PORT` (Railway подставляет сам)
+- Ошибки летят в Sentry, если задан `SENTRY_DSN`
+
+## CI
+
+`.github/workflows/ci.yml`, триггер — push/PR в `main`:
+
+```
+pnpm install --frozen-lockfile
+pnpm exec prisma generate
+pnpm exec eslint "{src,apps,libs,test}/**/*.ts"
+pnpm run test
+pnpm run build
+```
+
+Миграции в CI не гоняются — только генерация клиента (для тайпчека/сборки). Живая БД CI не нужна.
