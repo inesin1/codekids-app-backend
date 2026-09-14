@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ClsModule } from 'nestjs-cls';
 import { HealthController } from './health.controller';
@@ -14,8 +14,10 @@ import { PayoutsModule } from './modules/core/payouts/payouts.module';
 import { ValidationModule } from './modules/common/validation/validation.module';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { SentryGlobalFilter, SentryModule } from '@sentry/nestjs/setup';
 
 const commonModules = [
+  SentryModule.forRoot(),
   ConfigModule.forRoot({ isGlobal: true }),
   ScheduleModule.forRoot(),
   ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
@@ -47,6 +49,12 @@ const coreModules = [
 @Module({
   imports: [...commonModules, ...coreModules],
   controllers: [HealthController],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    {
+      provide: APP_FILTER,
+      useClass: SentryGlobalFilter,
+    },
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
 export class AppModule {}
