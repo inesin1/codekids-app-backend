@@ -1,5 +1,5 @@
-import { ConflictException } from '@nestjs/common';
-import { Prisma } from '../../../generated/client';
+import { BadRequestException, ConflictException } from '@nestjs/common';
+import { PayoutStatus, Prisma } from '../../../generated/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { PayoutsService } from './payouts.service';
@@ -92,5 +92,60 @@ describe('PayoutsService.calculate', () => {
       ConflictException,
     );
     expect(tx.payout.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('PayoutsService.markPaid', () => {
+  let service: PayoutsService;
+  let prisma: {
+    payout: { findUnique: jest.Mock; update: jest.Mock };
+  };
+
+  beforeEach(() => {
+    prisma = {
+      payout: { findUnique: jest.fn(), update: jest.fn() },
+    };
+    service = new PayoutsService(
+      prisma as unknown as PrismaService,
+      { log: jest.fn() } as unknown as AuditService,
+    );
+  });
+
+  it('должен переводить payout из PENDING в PAID', async () => {
+    // Arrange
+    let update: { where: { id: string }; data: { status: PayoutStatus } };
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'p1',
+      status: PayoutStatus.PENDING,
+      teacherId: 't1',
+      totalPay: new Prisma.Decimal(250),
+    });
+    prisma.payout.update.mockImplementation((args: typeof update) => {
+      update = args;
+      return { id: 'p1', status: PayoutStatus.PAID };
+    });
+
+    // Act
+    await service.markPaid('p1');
+
+    // Assert
+    expect(update!.where).toEqual({ id: 'p1' });
+    expect(update!.data.status).toBe(PayoutStatus.PAID);
+  });
+
+  it('должен запрещать повторную оплату уже оплаченного payout', async () => {
+    // Arrange
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 'p1',
+      status: PayoutStatus.PAID,
+      teacherId: 't1',
+      totalPay: new Prisma.Decimal(250),
+    });
+
+    // Act + Assert
+    await expect(service.markPaid('p1')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(prisma.payout.update).not.toHaveBeenCalled();
   });
 });

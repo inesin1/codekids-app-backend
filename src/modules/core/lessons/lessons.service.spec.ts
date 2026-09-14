@@ -109,4 +109,18 @@ describe('LessonsService.complete', () => {
       BadRequestException,
     );
   });
+
+  it('должен запрещать повторное списание за уже завершённый урок', async () => {
+    // Arrange
+    prisma.lesson.findUnique.mockResolvedValue({
+      ...scheduledLesson,
+      status: LessonStatus.COMPLETED,
+    });
+
+    // Act + Assert
+    await expect(service.complete('l1')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
 });
