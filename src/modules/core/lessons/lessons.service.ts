@@ -14,6 +14,7 @@ import {
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateLessonDto } from './dto/create-lesson.dto';
+import { UpdateLessonDto } from './dto/update-lesson.dto';
 import { GenerateLessonsDto } from './dto/generate-lessons.dto';
 import { RescheduleLessonDto } from './dto/reschedule-lesson.dto';
 
@@ -404,6 +405,71 @@ export class LessonsService {
         rescheduledToId: newLesson.id,
       },
       include: { ...lessonInclude, rescheduledTo: true },
+    });
+  }
+
+  async update(id: string, dto: UpdateLessonDto) {
+    const lesson = await this.findById(id);
+    if (lesson.status !== LessonStatus.SCHEDULED) {
+      throw new BadRequestException(
+        `Cannot edit lesson with status ${lesson.status}`,
+      );
+    }
+
+    const updated = await this.prisma.lesson.update({
+      where: { id },
+      data: {
+        ...(dto.scheduledAt !== undefined && {
+          scheduledAt: new Date(dto.scheduledAt),
+        }),
+        ...(dto.durationMinutes !== undefined && {
+          durationMinutes: dto.durationMinutes,
+        }),
+        ...(dto.price !== undefined && {
+          price: new Prisma.Decimal(dto.price),
+        }),
+        ...(dto.teacherRate !== undefined && {
+          teacherRate: new Prisma.Decimal(dto.teacherRate),
+        }),
+      },
+      include: lessonInclude,
+    });
+    this.audit.log({
+      action: 'lesson.updated',
+      entityType: 'Lesson',
+      entityId: id,
+      details: dto,
+    });
+    return updated;
+  }
+
+  async remove(id: string) {
+    const lesson = await this.prisma.lesson.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    if (!lesson) throw new NotFoundException('Lesson not found');
+    if (lesson.status === LessonStatus.COMPLETED) {
+      throw new BadRequestException(
+        'Cannot delete a completed lesson: it has financial history',
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.material.deleteMany({ where: { lessonId: id } });
+      await tx.rescheduleRequest.deleteMany({ where: { lessonId: id } });
+      // Занятие могло быть создано переносом другого — снимаем ссылку на него
+      await tx.lesson.updateMany({
+        where: { rescheduledToId: id },
+        data: { rescheduledToId: null },
+      });
+      await tx.lesson.delete({ where: { id } });
+    });
+
+    this.audit.log({
+      action: 'lesson.deleted',
+      entityType: 'Lesson',
+      entityId: id,
     });
   }
 

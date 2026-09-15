@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Param,
@@ -15,6 +16,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { LessonsService } from './lessons.service';
 import { LessonGenerationService } from './lesson-generation.service';
 import { CreateLessonDto } from './dto/create-lesson.dto';
+import { UpdateLessonDto } from './dto/update-lesson.dto';
 import { GenerateLessonsDto } from './dto/generate-lessons.dto';
 import { UpdateGenerationSettingsDto } from './dto/update-generation-settings.dto';
 import { RescheduleLessonDto } from './dto/reschedule-lesson.dto';
@@ -72,6 +74,18 @@ export class LessonsController {
   async findById(@Req() req: Express.Request, @Param('id') id: string) {
     const scope = await this.resolveScope(req.user!);
     return this.lessonsService.findById(id, scope);
+  }
+
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateLessonDto) {
+    return this.lessonsService.update(id, dto);
+  }
+
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.lessonsService.remove(id);
   }
 
   @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER)
