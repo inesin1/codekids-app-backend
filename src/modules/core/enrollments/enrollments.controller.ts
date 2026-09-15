@@ -6,6 +6,7 @@ import {
   Patch,
   Post,
   Query,
+  Req,
 } from '@nestjs/common';
 import { Role } from '../../../generated/client';
 import { Roles } from '../../common/auth/decorators/roles.decorator';
@@ -24,9 +25,15 @@ export class EnrollmentsController {
     return this.enrollmentsService.create(dto);
   }
 
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER)
   @Get()
-  findAll(@Query() query: FindEnrollmentsDto) {
+  findAll(@Req() req: Express.Request, @Query() query: FindEnrollmentsDto) {
+    const { id: userId, roles } = req.user!;
+    const isStaff = roles.includes(Role.ADMIN) || roles.includes(Role.MANAGER);
+    // staff видит всё; чистый препод — только свои энроллменты (teacherId = его userId)
+    if (!isStaff && roles.includes(Role.TEACHER)) {
+      query.teacherId = userId;
+    }
     return this.enrollmentsService.findAll(query);
   }
 
