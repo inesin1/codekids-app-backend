@@ -179,8 +179,8 @@ export class LessonsService {
 
   async findAll(
     filters: {
-      from?: string;
-      to?: string;
+      dateFrom?: string;
+      dateTo?: string;
       status?: LessonStatus;
       teacherId?: string;
       studentId?: string;
@@ -192,10 +192,10 @@ export class LessonsService {
     if (filters.status) where.status = filters.status;
     if (filters.teacherId) where.teacherId = filters.teacherId;
     if (filters.studentId) where.studentId = filters.studentId;
-    if (filters.from || filters.to) {
+    if (filters.dateFrom || filters.dateTo) {
       where.scheduledAt = {
-        ...(filters.from && { gte: new Date(filters.from) }),
-        ...(filters.to && { lte: new Date(filters.to) }),
+        ...(filters.dateFrom && { gte: new Date(filters.dateFrom) }),
+        ...(filters.dateTo && { lte: new Date(filters.dateTo) }),
       };
     }
 

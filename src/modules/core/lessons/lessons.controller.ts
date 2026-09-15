@@ -55,15 +55,15 @@ export class LessonsController {
   @Get()
   async findAll(
     @Req() req: Express.Request,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
     @Query('status') status?: LessonStatus,
     @Query('teacherId') teacherId?: string,
     @Query('studentId') studentId?: string,
   ) {
     const scope = await this.resolveScope(req.user!);
     return this.lessonsService.findAll(
-      { from, to, status, teacherId, studentId },
+      { dateFrom, dateTo, status, teacherId, studentId },
       scope,
     );
   }
