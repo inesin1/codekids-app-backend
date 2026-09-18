@@ -28,6 +28,7 @@ export class ReportsService {
       Number(config.get('BONUS_WINDOW_HOURS') ?? 24) * 60 * 60 * 1000;
   }
 
+  /** Создает отчет по проведенному занятию и начисляет бонус при своевременной сдаче. */
   async create(lessonId: string, dto: CreateReportDto) {
     const lesson = await this.prisma.lesson.findUnique({
       where: { id: lessonId },
@@ -66,6 +67,7 @@ export class ReportsService {
     return report;
   }
 
+  /** Находит отчет по идентификатору занятия. */
   async findByLessonId(lessonId: string) {
     const report = await this.prisma.lessonReport.findUnique({
       where: { lessonId },
@@ -74,6 +76,7 @@ export class ReportsService {
     return report;
   }
 
+  /** Обновляет отчет, если бонусное окно еще не закрыто. */
   async update(lessonId: string, dto: UpdateReportDto) {
     const report = await this.prisma.lessonReport.findUnique({
       where: { lessonId },
@@ -81,7 +84,7 @@ export class ReportsService {
     });
     if (!report) throw new NotFoundException('Report not found');
 
-    // После закрытия бонус-окна отчёт уже учтён в выплате — правки запрещены
+    // после закрытия бонус-окна правки запрещены
     if (
       report.lesson.completedAt &&
       !this.isWithinBonusWindow(report.lesson.completedAt)
@@ -105,6 +108,7 @@ export class ReportsService {
     return updated;
   }
 
+  /** Проверяет, укладывается ли время сдачи в бонусное окно. */
   private isWithinBonusWindow(completedAt: Date): boolean {
     return Date.now() - completedAt.getTime() < this.bonusWindowMs;
   }

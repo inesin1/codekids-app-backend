@@ -23,6 +23,7 @@ export class PayoutsService {
     private readonly notifier: TelegramNotifier,
   ) {}
 
+  /** Рассчитывает и сохраняет выплату преподавателю за указанный период. */
   async calculate(dto: CalculatePayoutDto) {
     const periodStart = new Date(dto.periodStart);
     const periodEnd = new Date(dto.periodEnd);
@@ -32,7 +33,6 @@ export class PayoutsService {
     }
 
     const payout = await this.prisma.$transaction(async (tx) => {
-      // Check overlapping payout for this teacher
       const existing = await tx.payout.findFirst({
         where: {
           teacherId: dto.teacherId,
@@ -46,7 +46,6 @@ export class PayoutsService {
         );
       }
 
-      // Aggregate completed lessons for the teacher in this period [start, end)
       const lessons = await tx.lesson.findMany({
         where: {
           teacherId: dto.teacherId,
@@ -107,6 +106,7 @@ export class PayoutsService {
     return payout;
   }
 
+  /** Рассчитывает выплаты за период для всех преподавателей с проведенными уроками. */
   async calculateAll(dto: CalculateAllPayoutsDto) {
     const periodStart = new Date(dto.periodStart);
     const periodEnd = new Date(dto.periodEnd);
@@ -115,7 +115,6 @@ export class PayoutsService {
       throw new BadRequestException('periodStart must be before periodEnd');
     }
 
-    // Find all teachers who have completed lessons in this period
     const teacherIds = await this.prisma.lesson
       .findMany({
         where: {
@@ -152,6 +151,7 @@ export class PayoutsService {
     return results;
   }
 
+  /** Возвращает список выплат по заданным фильтрам. */
   async findAll(
     filters: {
       teacherId?: string;
@@ -183,6 +183,7 @@ export class PayoutsService {
     });
   }
 
+  /** Переводит выплату в статус PAID с фиксацией даты оплаты. */
   async markPaid(id: string) {
     const payout = await this.prisma.payout.findUnique({ where: { id } });
     if (!payout) throw new NotFoundException('Payout not found');

@@ -18,8 +18,7 @@ const lessonNames = {
   teacher: { include: { user: true } },
 } as const;
 
-// Ежедневная сводка проблем для ADMIN/MANAGER в личку.
-// Без дедупа: нерешённая проблема попадёт и в завтрашний дайджест
+/** Формирует и рассылает ежедневную сводку проблем сотрудникам. */
 @Injectable()
 export class TelegramDigestService {
   private readonly logger = new Logger(TelegramDigestService.name);
@@ -29,6 +28,7 @@ export class TelegramDigestService {
     private readonly telegram: TelegramService,
   ) {}
 
+  /** Отправляет ежедневный дайджест в личные чаты сотрудников (10:00 МСК). */
   @Cron('0 10 * * *', { timeZone: 'Europe/Moscow' })
   async sendDaily() {
     if (!this.telegram.enabled) return;
@@ -57,7 +57,7 @@ export class TelegramDigestService {
     );
   }
 
-  // null — проблем нет, слать нечего
+  /** Собирает текст сводки проблем по системе (или null, если проблем нет). */
   async buildText(now: Date) {
     const ago = (hours: number) => new Date(now.getTime() - hours * HOUR_MS);
 

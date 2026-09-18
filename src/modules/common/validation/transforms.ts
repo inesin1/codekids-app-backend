@@ -1,7 +1,6 @@
 import { Transform } from 'class-transformer';
 
-// Приводит query-строку к boolean: "true"→true, "false"→false, иначе undefined.
-// enableImplicitConversion этого не делает (любая непустая строка → true).
+/** Приводит query-строку к boolean ("true" -> true, "false" -> false). */
 export const ToBoolean = () =>
   Transform(({ value }) => {
     if (value === true || value === 'true') return true;

@@ -27,9 +27,7 @@ const lessonContext = {
 
 const MINUTE_MS = 60 * 1000;
 
-// Окно (от, до] относительно текущего момента. Нижняя граница дневного окна —
-// 23ч: занятие, созданное или перенесённое меньше чем за сутки, дневное
-// напоминание не получает (о переносе и так пришло сообщение)
+// Окна напоминаний: за сутки (23-24ч) и за 15 минут до занятия
 const LESSON_REMINDERS = [
   {
     type: NotificationType.LESSON_REMINDER_DAY,
@@ -51,8 +49,7 @@ type LessonHeader = {
   enrollment: { course: { name: string } };
 };
 
-// Шаблоны уведомлений. Событийные методы fire-and-forget, как AuditService.log:
-// сбой Telegram не должен ронять бизнес-операцию
+/** Отправляет уведомления в Telegram (fire-and-forget). */
 @Injectable()
 export class TelegramNotifier {
   private readonly logger = new Logger(TelegramNotifier.name);
@@ -66,6 +63,7 @@ export class TelegramNotifier {
     this.appUrl = config.get<string>('APP_URL') || undefined;
   }
 
+  /** Отправляет или обновляет отчет по занятию в группе ученика. */
   reportSaved(reportId: string) {
     this.fire('reportSaved', async () => {
       const report = await this.prisma.lessonReport.findUniqueOrThrow({
@@ -100,7 +98,6 @@ export class TelegramNotifier {
         this.lessonLink(lesson.id),
       ].join('\n');
 
-      // Правка отчёта редактирует уже отправленное сообщение
       const updated = await this.telegram.updateMessage(
         NotificationType.LESSON_REPORT,
         reportId,
@@ -117,6 +114,7 @@ export class TelegramNotifier {
     });
   }
 
+  /** Отправляет уведомление о добавлении материала к занятию в группу ученика. */
   materialAdded(materialId: string) {
     this.fire('materialAdded', async () => {
       const material = await this.prisma.material.findUniqueOrThrow({
@@ -143,6 +141,7 @@ export class TelegramNotifier {
     });
   }
 
+  /** Отправляет уведомление об отмене занятия в группу ученика. */
   lessonCanceled(lessonId: string) {
     this.fire('lessonCanceled', async () => {
       const lesson = await this.prisma.lesson.findUniqueOrThrow({
@@ -161,7 +160,7 @@ export class TelegramNotifier {
     });
   }
 
-  // Перенос создаёт новое занятие (rescheduledTo), правка времени — меняет текущее
+  /** Отправляет уведомление о переносе занятия в группу ученика. */
   lessonRescheduled(lessonId: string, from: Date) {
     this.fire('lessonRescheduled', async () => {
       const lesson = await this.prisma.lesson.findUniqueOrThrow({
@@ -186,8 +185,7 @@ export class TelegramNotifier {
     });
   }
 
-  // Создание и решение заявки — одно сообщение: при решении оно редактируется
-  // и теряет кнопки
+  /** Создает или обновляет сообщение с заявкой на перенос/отмену в группе ученика. */
   rescheduleRequestChanged(requestId: string) {
     this.fire('rescheduleRequestChanged', async () => {
       const request = await this.prisma.rescheduleRequest.findUniqueOrThrow({
@@ -241,8 +239,7 @@ export class TelegramNotifier {
               ],
             ],
           }
-        : // Пустая клавиатура снимает кнопки при редактировании
-          { inline_keyboard: [] };
+        : { inline_keyboard: [] };
 
       const updated = await this.telegram.updateMessage(
         NotificationType.RESCHEDULE_REQUEST,
@@ -261,7 +258,7 @@ export class TelegramNotifier {
     });
   }
 
-  // Дедуп по (type, lessonId): каждое напоминание уходит один раз на занятие
+  /** Отправляет напоминания о занятиях за сутки и за 15 минут. */
   @Cron(CronExpression.EVERY_MINUTE)
   async sendLessonReminders() {
     if (!this.telegram.enabled) return;
@@ -307,7 +304,7 @@ export class TelegramNotifier {
     }
   }
 
-  // Выплаты — только в личку преподу, не в группу ученика
+  /** Отправляет уведомление о расчете или переводе выплаты преподавателю. */
   payoutChanged(payoutId: string) {
     this.fire('payoutChanged', async () => {
       const payout = await this.prisma.payout.findUniqueOrThrow({
@@ -317,7 +314,7 @@ export class TelegramNotifier {
       const chatId = payout.teacher.user.telegramChatId;
       if (!chatId) return;
 
-      // periodEnd не включается в период [start, end)
+      // исключаем правую границу диапазона [start, end)
       const periodEnd = new Date(payout.periodEnd.getTime() - 1);
       await this.telegram.enqueue({
         chatId,

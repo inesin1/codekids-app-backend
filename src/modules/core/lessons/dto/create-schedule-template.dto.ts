@@ -33,11 +33,9 @@ export class CreateScheduleTemplateDto {
   @IsString()
   enrollmentId: string;
 
-  // userId преподавателя
   @IsString()
   teacherId: string;
 
-  // userId ученика
   @IsString()
   studentId: string;
 
@@ -47,7 +45,7 @@ export class CreateScheduleTemplateDto {
   @Type(() => ScheduleTemplateSlotDto)
   slots: ScheduleTemplateSlotDto[];
 
-  // IANA-зона, в которой заданы startTime слотов; нет → дефолт схемы
+  // IANA-таймзона для startTime (по умолчанию зона из схемы)
   @IsOptional()
   @IsTimeZone()
   timezone?: string;

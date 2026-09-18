@@ -14,9 +14,7 @@ export class AuditService {
     private readonly cls: ClsService,
   ) {}
 
-  // Актор берётся из CLS-контекста запроса; вне HTTP (cron) — система (userId = null),
-  // если не передан явно (кнопки в Telegram).
-  // Fire-and-forget: ошибка записи аудита не должна ронять бизнес-операцию.
+  /** Записывает событие аудита (fire-and-forget). Актор определяется из CLS или передается явно. */
   log({
     actorId,
     ...entry
@@ -31,7 +29,7 @@ export class AuditService {
       ? this.cls.get<Request | undefined>(CLS_REQ)
       : undefined;
 
-    // JSON-клон отбрасывает undefined-поля (DTO с необязательными полями)
+    // JSON-сериализация отбрасывает undefined-поля
     const details =
       entry.details == null
         ? undefined
@@ -52,6 +50,7 @@ export class AuditService {
       );
   }
 
+  /** Возвращает записи журнала аудита по заданным фильтрам. */
   findAll(query: FindAuditLogsDto) {
     return this.prisma.auditLog.findMany({
       where: {

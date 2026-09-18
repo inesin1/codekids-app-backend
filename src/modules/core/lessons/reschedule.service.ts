@@ -33,6 +33,7 @@ export class RescheduleService implements OnModuleInit {
   ) {}
 
   // Кнопки «Подтвердить / Отклонить» под заявкой в группе ученика
+  /** Регистрирует callback-кнопки «Подтвердить / Отклонить» под заявкой в группе ученика. */
   onModuleInit() {
     this.telegram.bot?.callbackQuery(
       /^rr:(approve|reject):(\w+)$/,
@@ -102,6 +103,7 @@ export class RescheduleService implements OnModuleInit {
   }
 
   // Учитель может заявлять только по своим урокам, родитель — по урокам своих детей
+  /** Проверяет, что пользователь является учителем или родителем ученика данного урока. */
   private async assertOwnsLesson(
     user: Actor,
     teacherId: string,
@@ -224,6 +226,7 @@ export class RescheduleService implements OnModuleInit {
 
   // Заявку преподавателя решает родитель ученика, заявку родителя — преподаватель.
   // ADMIN/MANAGER — любую
+  /** Заявку учителя решает родитель, заявку родителя — учитель. ADMIN/MANAGER решают любую. */
   private assertCanResolve(
     request: {
       createdById: string;
@@ -249,6 +252,10 @@ export class RescheduleService implements OnModuleInit {
 
   // Условный апдейт закрывает гонку двойного подтверждения (двойной клик по кнопке):
   // второй запрос уже не найдёт PENDING и не перенесёт урок повторно
+  /**
+   * updateMany по PENDING закрывает гонку двойного подтверждения:
+   * второй запрос не найдёт PENDING и не сделает повторный перенос.
+   */
   private async closePending(
     tx: Prisma.TransactionClient,
     id: string,
@@ -264,6 +271,7 @@ export class RescheduleService implements OnModuleInit {
 
   // В личном чате chat.id совпадает с Telegram user id — по нему опознаём
   // нажавшего кнопку в группе
+  /** Ищет пользователя по Telegram user id (chat.id личного чата = user id). */
   private async findTelegramActor(telegramUserId: number) {
     const user = await this.prisma.user.findUnique({
       where: { telegramChatId: String(telegramUserId) },

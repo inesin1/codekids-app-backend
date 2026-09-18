@@ -44,6 +44,7 @@ export class UsersService {
   }
 
   // Обогащаем студенческий профиль вычисленным возрастом.
+  /** Добавляет вычисленный возраст к студенческому профилю. */
   private static withAge<T extends { birthDate: Date | null }>(profile: T) {
     return {
       ...profile,
@@ -64,6 +65,7 @@ export class UsersService {
   }
 
   // Минимальный select для определения участия по наличию профиля.
+  /** Минимальный include для определения наличия профилей. */
   static readonly profileExists = {
     teacherProfile: { select: { userId: true } },
     parentProfile: { select: { userId: true } },
@@ -71,6 +73,7 @@ export class UsersService {
   } satisfies Prisma.UserInclude;
 
   // authz-роли = staffRoles + участие, выведенное из наличия профилей.
+  /** Вычисляет роли: staffRoles + роли, выведенные из наличия профилей. */
   static resolveRoles(user: {
     staffRoles: Role[];
     teacherProfile?: unknown;
@@ -86,6 +89,7 @@ export class UsersService {
   }
 
   // Прикрепляем вычисленные roles к ответу (контракт чтения для фронта неизменен).
+  /** Добавляет вычисленные roles к объекту (контракт чтения для фронта). */
   private static withRoles<
     T extends {
       staffRoles: Role[];
@@ -103,6 +107,7 @@ export class UsersService {
 
   // Догенерируем id отсутствующим контактам, чтобы фронт мог точечно редактировать.
   // undefined → поле не трогаем (Prisma пропускает).
+  /** Проставляет id отсутствующим контактам (для точечного редактирования на фронте). */
   private normalizeContacts(
     contacts?: ContactDto[],
   ): Prisma.InputJsonValue | undefined {
@@ -111,6 +116,7 @@ export class UsersService {
   }
 
   // Превращаем P2002 по email в читаемый 409 вместо сырого 500.
+  /** Преобразует P2002 (дубль email) в читаемый ConflictException вместо 500. */
   private async withEmailConflict<T>(fn: () => Promise<T>): Promise<T> {
     try {
       return await fn();
@@ -210,6 +216,7 @@ export class UsersService {
           password: hashedPassword,
           staffRoles: roles.filter((r) => UsersService.isStaffRole(r)),
           // если staff ещё и преподаёт — заводим teacher-профиль
+          // staff тоже преподаёт — заводим teacher-профиль
           ...(roles.includes(Role.TEACHER) && {
             teacherProfile: { create: {} },
           }),
@@ -230,6 +237,7 @@ export class UsersService {
   }
 
   // Маппинг роли в фильтр: staff — по колонке, участники — по наличию профиля.
+  /** Фильтр по роли: staff — по колонке, остальные — по наличию профиля. */
   private roleFilter(role: Role): Prisma.UserWhereInput {
     if (UsersService.isStaffRole(role)) return { staffRoles: { has: role } };
     if (role === Role.TEACHER) return { teacherProfile: { isNot: null } };
@@ -363,6 +371,7 @@ export class UsersService {
     const { birthDate, roles, password, ...userData } = dto;
 
     // Выдача доступа в ЛК: пароль только парой с email (both-or-neither).
+    // пароль только с email (both-or-neither — выдача доступа в ЛК)
     if (password != null && userData.email == null) {
       throw new BadRequestException('email is required to grant portal access');
     }
@@ -385,6 +394,7 @@ export class UsersService {
             },
           }),
           // назначили роль TEACHER → гарантируем наличие профиля (additive)
+          // назначили TEACHER → гарантируем наличие профиля (additive)
           ...(roles?.includes(Role.TEACHER) && {
             teacherProfile: { upsert: { create: {}, update: {} } },
           }),
@@ -397,6 +407,7 @@ export class UsersService {
       entityType: 'User',
       entityId: id,
       // без password; выдачу доступа в ЛК фиксируем флагом
+      // password не логируем; выдачу доступа в ЛК фиксируем флагом
       details: {
         ...userData,
         roles,

@@ -28,7 +28,7 @@ export class UpdateUserDto extends PartialType(
   @IsDateString()
   birthDate?: string;
 
-  // Выдача доступа в ЛК lite-юзеру: пароль ставится только парой с email.
+  // пароль задается только в паре с email (выдача доступа в ЛК)
   @ValidateIf((o: UpdateUserDto) => o.password != null)
   @IsString()
   @MaxLength(128)

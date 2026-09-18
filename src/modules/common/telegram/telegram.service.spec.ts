@@ -81,13 +81,10 @@ describe('TelegramService.flush', () => {
   });
 
   it('должен отправлять новое сообщение и помечать отчёт отправленным', async () => {
-    // Arrange
     prisma.telegramNotification.findMany.mockResolvedValue([makeRow()]);
 
-    // Act
     await service.flush();
 
-    // Assert
     expect(sendMessage).toHaveBeenCalledWith(
       '-100',
       'текст',
@@ -108,15 +105,12 @@ describe('TelegramService.flush', () => {
   });
 
   it('должен редактировать сообщение, если оно уже отправлено', async () => {
-    // Arrange
     prisma.telegramNotification.findMany.mockResolvedValue([
       makeRow({ telegramMessageId: 7 }),
     ]);
 
-    // Act
     await service.flush();
 
-    // Assert
     expect(editMessageText).toHaveBeenCalledWith(
       '-100',
       7,
@@ -128,7 +122,6 @@ describe('TelegramService.flush', () => {
   });
 
   it('должен считать «message is not modified» успехом', async () => {
-    // Arrange
     prisma.telegramNotification.findMany.mockResolvedValue([
       makeRow({ telegramMessageId: 7 }),
     ]);
@@ -136,16 +129,13 @@ describe('TelegramService.flush', () => {
       apiError(400, 'Bad Request: message is not modified'),
     );
 
-    // Act
     await service.flush();
 
-    // Assert
     expect(prisma.telegramNotification.updateMany).toHaveBeenCalled();
     expect(prisma.telegramNotification.update).not.toHaveBeenCalled();
   });
 
   it('должен прекращать ретраи и деактивировать чат при 403', async () => {
-    // Arrange
     prisma.telegramNotification.findMany.mockResolvedValue([makeRow()]);
     const kicked = apiError(
       403,
@@ -153,10 +143,8 @@ describe('TelegramService.flush', () => {
     );
     sendMessage.mockRejectedValue(kicked);
 
-    // Act
     await service.flush();
 
-    // Assert
     expect(prisma.telegramGroup.updateMany).toHaveBeenCalledWith({
       where: { telegramChatId: '-100' },
       data: { isActive: false },
@@ -168,14 +156,11 @@ describe('TelegramService.flush', () => {
   });
 
   it('должен увеличивать счётчик попыток при прочих ошибках', async () => {
-    // Arrange
     prisma.telegramNotification.findMany.mockResolvedValue([makeRow()]);
     sendMessage.mockRejectedValue(new Error('network down'));
 
-    // Act
     await service.flush();
 
-    // Assert
     expect(prisma.telegramNotification.update).toHaveBeenCalledWith({
       where: { id: 'n1' },
       data: { attempts: { increment: 1 }, error: 'network down' },

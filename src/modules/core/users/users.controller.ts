@@ -66,6 +66,7 @@ export class UsersController {
     const { id: userId, roles } = req.user!;
     const isStaff = roles.includes(Role.ADMIN) || roles.includes(Role.MANAGER);
     // staff видит всех; чистый препод — только своих учеников (teacherId = его userId)
+    // чистый препод видит только своих учеников
     if (!isStaff && roles.includes(Role.TEACHER)) {
       query.teacherId = userId;
     }

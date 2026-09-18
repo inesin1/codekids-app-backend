@@ -256,6 +256,7 @@ export class LessonsService {
     const teacherRate = lesson.teacherRate ?? enrollment.teacherRate;
 
     // price=0 → trial lesson, skip financial transaction
+    // price=0 → пробный урок, транзакцию не создаём
     if (Number(price) === 0) {
       const updated = await this.prisma.lesson.update({
         where: { id },
@@ -343,6 +344,7 @@ export class LessonsService {
   }
 
   // Вариант для вызова внутри внешней транзакции (см. RescheduleService.approve)
+  /** Отменяет урок внутри внешней транзакции (см. RescheduleService.approve). */
   async cancelWithin(tx: Prisma.TransactionClient, id: string) {
     const lesson = await tx.lesson.findUnique({
       where: { id },
@@ -466,6 +468,7 @@ export class LessonsService {
       await tx.material.deleteMany({ where: { lessonId: id } });
       await tx.rescheduleRequest.deleteMany({ where: { lessonId: id } });
       // Занятие могло быть создано переносом другого — снимаем ссылку на него
+      // снимаем ссылку rescheduledToId, если урок создан переносом
       await tx.lesson.updateMany({
         where: { rescheduledToId: id },
         data: { rescheduledToId: null },

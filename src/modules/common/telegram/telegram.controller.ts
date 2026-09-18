@@ -20,7 +20,7 @@ import { TelegramService } from './telegram.service';
 export class TelegramController {
   constructor(private readonly telegram: TelegramService) {}
 
-  // Тело не валидируем: интерфейс Update не класс, ValidationPipe его пропускает
+  // Update — интерфейс без class-validator, валидация пропускается
   @Public()
   @SkipThrottle()
   @Post('webhook')
@@ -46,7 +46,7 @@ export class TelegramController {
     return this.telegram.unlinkGroup(studentId);
   }
 
-  // Стафф выдаёт ссылку и lite-пользователям без доступа в ЛК
+  // генерация ссылки сотрудником (в т.ч. для пользователей без доступа в ЛК)
   @Post('users/:userId/link')
   createUserLink(@Req() req: Express.Request, @Param('userId') userId: string) {
     this.assertSelfOrStaff(req, userId);

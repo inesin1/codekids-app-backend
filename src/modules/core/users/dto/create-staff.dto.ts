@@ -2,7 +2,7 @@ import { ArrayNotEmpty, IsIn } from 'class-validator';
 import { Role } from '../../../../generated/client';
 import { CreateUserDto } from './create-user.dto';
 
-// staff = ADMIN/MANAGER, опционально + TEACHER (управленец, который ещё и ведёт)
+/** DTO создания сотрудника (ADMIN/MANAGER, опционально TEACHER). */
 export class CreateStaffDto extends CreateUserDto {
   @ArrayNotEmpty()
   @IsIn([Role.ADMIN, Role.MANAGER, Role.TEACHER], { each: true })

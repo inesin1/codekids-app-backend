@@ -53,6 +53,7 @@ export class LessonGenerationService {
   }
 
   // Ежедневно проверяем настройки; генерим только в выбранный день недели
+  /** Запускает генерацию занятий в настроенный день недели (ежедневный cron). */
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
   async runScheduled() {
     const settings = await this.getSettings();

@@ -36,6 +36,7 @@ export class LessonsController {
   }
 
   // Статические роуты — до @Get(':id'), иначе перехватятся как id
+  // статический роут до :id, иначе перехватится как id
   @Roles(Role.ADMIN, Role.MANAGER)
   @Get('generation-settings')
   getGenerationSettings() {

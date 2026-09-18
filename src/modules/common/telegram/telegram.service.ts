@@ -28,7 +28,7 @@ const ALLOWED_UPDATES = [
   'callback_query',
 ] as const;
 
-// type alias (не interface) — присваивается в Prisma Json без каста
+// type alias для совместимости с Prisma Json
 export type InlineKeyboard = {
   inline_keyboard: { text: string; callback_data: string }[][];
 };
@@ -43,7 +43,6 @@ export class TelegramService
   implements OnApplicationBootstrap, OnModuleDestroy
 {
   private readonly logger = new Logger(TelegramService.name);
-  // undefined — токен не задан, интеграция выключена
   readonly bot?: Bot;
   private readonly webhookUrl?: string;
   private readonly webhookSecret?: string;
@@ -80,7 +79,7 @@ export class TelegramService
     return !!this.bot;
   }
 
-  // Хендлеры других модулей регистрируются в onModuleInit — стартуем после них
+  /** Инициализирует бота и запускает webhook или polling. */
   async onApplicationBootstrap() {
     if (!this.bot) return;
     try {
@@ -91,7 +90,7 @@ export class TelegramService
           allowed_updates: ALLOWED_UPDATES,
         });
       } else {
-        // Polling только локально: bot.start() снимает webhook, поэтому нужен отдельный dev-бот
+        // bot.start() снимает webhook, поэтому polling только локально
         void this.bot
           .start({ allowed_updates: ALLOWED_UPDATES })
           .catch((e) => this.logger.error('Telegram polling stopped', e));
@@ -117,14 +116,10 @@ export class TelegramService
     try {
       await this.bot.handleUpdate(update);
     } catch (e) {
-      // Отвечаем 200 в любом случае, иначе Telegram будет ретраить апдейт
+      // гасим ошибку, чтобы Telegram не ретраил апдейт
       this.logger.error('Telegram webhook update failed', e);
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // Привязка чатов
-  // ---------------------------------------------------------------------------
 
   async createGroupLink(studentId: string) {
     const student = await this.prisma.studentProfile.findUnique({
@@ -155,7 +150,7 @@ export class TelegramService
     if (!this.bot?.isInited()) {
       throw new ServiceUnavailableException('Telegram is not configured');
     }
-    // 16 байт → 22 символа base64url, влезает в лимит deep link (64, [A-Za-z0-9_-])
+    // 16 байт base64url укладываются в лимит deep link (64 символа)
     const token = randomBytes(16).toString('base64url');
     await this.prisma.telegramLinkToken.create({
       data: {
@@ -229,7 +224,7 @@ export class TelegramService
     });
   }
 
-  // Группа стала супергруппой — у чата новый id
+  /** Обновляет chatId при миграции группы в супергруппу. */
   private async migrateChat(from: string, to: string) {
     await this.prisma.$transaction([
       this.prisma.telegramGroup.updateMany({
@@ -243,8 +238,7 @@ export class TelegramService
     ]);
   }
 
-  // Бота удалили из группы или заблокировали в личке. id групп отрицательные,
-  // личных чатов — положительные, так что один chatId не попадёт в обе таблицы
+  /** Деактивирует чат при блокировке бота или удалении из группы. */
   private async deactivateChat(chatId: string) {
     await this.prisma.telegramGroup.updateMany({
       where: { telegramChatId: chatId },
@@ -256,10 +250,7 @@ export class TelegramService
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Outbox
-  // ---------------------------------------------------------------------------
-
+  /** Ставит исходящее сообщение в очередь отправки. */
   async enqueue(
     msg: OutgoingMessage & {
       chatId: string;
@@ -272,8 +263,7 @@ export class TelegramService
     });
   }
 
-  // Меняет уже поставленное сообщение; воркер отредактирует его в Telegram.
-  // Возвращает число затронутых сообщений (0 — сообщения ещё не было)
+  /** Обновляет еще не отправленное сообщение в очереди. */
   async updateMessage(
     type: NotificationType,
     entityId: string,
@@ -292,8 +282,7 @@ export class TelegramService
     return count;
   }
 
-  // ponytail: флаг в памяти процесса — корректно для одного инстанса;
-  // при нескольких — забирать строки через FOR UPDATE SKIP LOCKED
+  // in-memory флаг для защиты от параллельного выполнения в рамках одного инстанса
   @Interval(5000)
   async flush() {
     if (!this.bot || this.flushing) return;
@@ -324,7 +313,6 @@ export class TelegramService
     const options = {
       parse_mode: 'HTML' as const,
       link_preview_options: { is_disabled: true },
-      // Json пишется только из enqueue/updateMessage — там это InlineKeyboard
       reply_markup: (row.replyMarkup ?? undefined) as
         | InlineKeyboard
         | undefined,
@@ -366,8 +354,7 @@ export class TelegramService
     }
   }
 
-  // Если текст поменяли, пока шла отправка, строка остаётся несинхронизированной
-  // и следующим проходом уйдёт правкой
+  /** Помечает сообщение отправленным (с защитой от перезаписи измененного текста). */
   private markSent(row: TelegramNotification) {
     return this.prisma.telegramNotification.updateMany({
       where: { id: row.id, text: row.text },

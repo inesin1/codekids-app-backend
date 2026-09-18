@@ -3,6 +3,7 @@ import { NotificationType } from '../../../generated/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramNotifier } from './telegram.notifier';
 import { TelegramService } from './telegram.service';
+import { describe } from 'node:test';
 
 const MINUTE_MS = 60 * 1000;
 
@@ -45,10 +46,8 @@ describe('TelegramNotifier.sendLessonReminders', () => {
   });
 
   it('должен искать занятия в окнах (23ч, 24ч] и (0, 15мин]', async () => {
-    // Act
     await notifier.sendLessonReminders();
 
-    // Assert
     const windows = prisma.lesson.findMany.mock.calls.map(
       ([args]: [{ where: { scheduledAt: { gt: Date; lte: Date } } }]) =>
         args.where.scheduledAt,
@@ -63,7 +62,6 @@ describe('TelegramNotifier.sendLessonReminders', () => {
   });
 
   it('не должен повторно слать напоминание по тому же занятию', async () => {
-    // Arrange
     const soon = new Date(now.getTime() + 10 * MINUTE_MS);
     prisma.lesson.findMany
       .mockResolvedValueOnce([])
@@ -72,10 +70,8 @@ describe('TelegramNotifier.sendLessonReminders', () => {
       { entityId: 'l1' },
     ]);
 
-    // Act
     await notifier.sendLessonReminders();
 
-    // Assert
     expect(telegram.enqueue).toHaveBeenCalledTimes(1);
     expect(telegram.enqueue).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -87,13 +83,10 @@ describe('TelegramNotifier.sendLessonReminders', () => {
   });
 
   it('не должен ничего делать при выключенной интеграции', async () => {
-    // Arrange
     telegram.enabled = false;
 
-    // Act
     await notifier.sendLessonReminders();
 
-    // Assert
     expect(prisma.lesson.findMany).not.toHaveBeenCalled();
   });
 });
