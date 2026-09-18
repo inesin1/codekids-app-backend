@@ -229,12 +229,6 @@ export class TelegramService
     await this.prisma.telegramLinkToken.deleteMany({
       where: { token: link.token },
     });
-    await ctx.reply(
-      isGroupLink
-        ? `Группа привязана к ученику ${fullName(link.user)}. Сюда будут приходить отчёты по занятиям, переносы, отмены и новые материалы.`
-        : `Telegram подключён, ${fullName(link.user)}. Теперь можно подтверждать заявки кнопками в группах.`,
-      { parse_mode: 'HTML' },
-    );
   }
 
   // Группа стала супергруппой — у чата новый id
