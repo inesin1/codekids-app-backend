@@ -18,7 +18,6 @@ import {
   TelegramNotification,
 } from '../../../generated/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { fullName } from './telegram.format';
 
 export const MAX_ATTEMPTS = 5;
 const RETRY_DELAY_MS = 60_000;
@@ -176,7 +175,6 @@ export class TelegramService
     const link = ctx.match
       ? await this.prisma.telegramLinkToken.findUnique({
           where: { token: ctx.match },
-          include: { user: true },
         })
       : null;
     if (!link || link.expiresAt < new Date()) {
