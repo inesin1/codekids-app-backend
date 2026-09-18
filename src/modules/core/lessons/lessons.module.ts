@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { TelegramModule } from '../../common/telegram/telegram.module';
 import { LessonsController } from './lessons.controller';
 import { LessonsService } from './lessons.service';
 import { LessonGenerationService } from './lesson-generation.service';
@@ -12,6 +13,7 @@ import { MaterialsController } from './materials.controller';
 import { MaterialsService } from './materials.service';
 
 @Module({
+  imports: [TelegramModule],
   controllers: [
     LessonsController,
     ScheduleTemplatesController,

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { TelegramNotifier } from '../../common/telegram/telegram.notifier';
 import { CreateMaterialDto } from './dto/create-material.dto';
 
 @Injectable()
@@ -8,6 +9,7 @@ export class MaterialsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifier: TelegramNotifier,
   ) {}
 
   async create(lessonId: string, dto: CreateMaterialDto) {
@@ -20,6 +22,7 @@ export class MaterialsService {
       entityId: material.id,
       details: { lessonId },
     });
+    this.notifier.materialAdded(material.id);
     return material;
   }
 

@@ -13,6 +13,7 @@ import {
 } from '../../../generated/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { TelegramNotifier } from '../../common/telegram/telegram.notifier';
 import { CreateLessonDto } from './dto/create-lesson.dto';
 import { UpdateLessonDto } from './dto/update-lesson.dto';
 import { GenerateLessonsDto } from './dto/generate-lessons.dto';
@@ -41,6 +42,7 @@ export class LessonsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifier: TelegramNotifier,
   ) {}
 
   async create(dto: CreateLessonDto) {
@@ -336,6 +338,7 @@ export class LessonsService {
       entityType: 'Lesson',
       entityId: id,
     });
+    this.notifier.lessonCanceled(id);
     return lesson;
   }
 
@@ -369,6 +372,7 @@ export class LessonsService {
       entityId: id,
       details: { newDate: dto.newDate, newLessonId: lesson.rescheduledToId },
     });
+    this.notifier.lessonRescheduled(id, lesson.scheduledAt);
     return lesson;
   }
 
@@ -440,6 +444,9 @@ export class LessonsService {
       entityId: id,
       details: dto,
     });
+    if (updated.scheduledAt.getTime() !== lesson.scheduledAt.getTime()) {
+      this.notifier.lessonRescheduled(id, lesson.scheduledAt);
+    }
     return updated;
   }
 

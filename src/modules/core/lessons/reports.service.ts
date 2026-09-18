@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma, LessonStatus } from '../../../generated/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { TelegramNotifier } from '../../common/telegram/telegram.notifier';
 import { CreateReportDto } from './dto/create-report.dto';
 import { UpdateReportDto } from './dto/update-report.dto';
 
@@ -19,6 +20,7 @@ export class ReportsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifier: TelegramNotifier,
     config: ConfigService,
   ) {
     this.bonusAmount = Number(config.get('BONUS_AMOUNT') ?? 50);
@@ -60,6 +62,7 @@ export class ReportsService {
       entityId: report.id,
       details: { lessonId, bonusApplied },
     });
+    this.notifier.reportSaved(report.id);
     return report;
   }
 
@@ -98,6 +101,7 @@ export class ReportsService {
       entityId: report.id,
       details: { lessonId },
     });
+    this.notifier.reportSaved(report.id);
     return updated;
   }
 
