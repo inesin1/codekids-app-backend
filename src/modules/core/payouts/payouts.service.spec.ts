@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { PayoutStatus, Prisma } from '../../../generated/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { TelegramNotifier } from '../../common/telegram/telegram.notifier';
 import { PayoutsService } from './payouts.service';
 
 type TxMock = {
@@ -31,6 +32,7 @@ describe('PayoutsService.calculate', () => {
     service = new PayoutsService(
       prisma as unknown as PrismaService,
       { log: jest.fn() } as unknown as AuditService,
+      { payoutChanged: jest.fn() } as unknown as TelegramNotifier,
     );
   });
 
@@ -108,6 +110,7 @@ describe('PayoutsService.markPaid', () => {
     service = new PayoutsService(
       prisma as unknown as PrismaService,
       { log: jest.fn() } as unknown as AuditService,
+      { payoutChanged: jest.fn() } as unknown as TelegramNotifier,
     );
   });
 

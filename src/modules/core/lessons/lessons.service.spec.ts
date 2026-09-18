@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { LessonStatus, Prisma } from '../../../generated/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { TelegramNotifier } from '../../common/telegram/telegram.notifier';
 import { LessonsService } from './lessons.service';
 
 describe('LessonsService.complete', () => {
@@ -45,6 +46,7 @@ describe('LessonsService.complete', () => {
     service = new LessonsService(
       prisma as unknown as PrismaService,
       { log: jest.fn() } as unknown as AuditService,
+      {} as TelegramNotifier,
     );
   });
 

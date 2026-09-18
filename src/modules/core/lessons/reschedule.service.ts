@@ -1,30 +1,75 @@
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
   Injectable,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import {
+  Prisma,
   Role,
   RescheduleRequestStatus,
   RescheduleRequestType,
 } from '../../../generated/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { TelegramNotifier } from '../../common/telegram/telegram.notifier';
+import { TelegramService } from '../../common/telegram/telegram.service';
+import { UsersService } from '../users/users.service';
 import { LessonsService } from './lessons.service';
 import { CreateRescheduleRequestDto } from './dto/create-reschedule-request.dto';
 
+type Actor = { id: string; roles: Role[] };
+
 @Injectable()
-export class RescheduleService {
+export class RescheduleService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly lessonsService: LessonsService,
     private readonly audit: AuditService,
+    private readonly telegram: TelegramService,
+    private readonly notifier: TelegramNotifier,
   ) {}
+
+  // Кнопки «Подтвердить / Отклонить» под заявкой в группе ученика
+  onModuleInit() {
+    this.telegram.bot?.callbackQuery(
+      /^rr:(approve|reject):(\w+)$/,
+      async (ctx) => {
+        const [, action, requestId] = ctx.match;
+        const actor = await this.findTelegramActor(ctx.from.id);
+        if (!actor) {
+          await ctx.answerCallbackQuery({
+            text: 'Сначала подключите Telegram: в профиле личного кабинета или по ссылке от менеджера.',
+            show_alert: true,
+          });
+          return;
+        }
+        try {
+          if (action === 'approve') await this.approve(requestId, actor);
+          else await this.reject(requestId, actor);
+          await ctx.answerCallbackQuery({
+            text:
+              action === 'approve' ? 'Заявка подтверждена' : 'Заявка отклонена',
+          });
+        } catch (e) {
+          if (!(e instanceof HttpException)) throw e;
+          await ctx.answerCallbackQuery({
+            text:
+              e instanceof ForbiddenException
+                ? 'Решение принимает другая сторона или менеджер.'
+                : 'Заявка уже рассмотрена или занятие изменено.',
+            show_alert: true,
+          });
+        }
+      },
+    );
+  }
 
   async createRequest(
     lessonId: string,
-    user: { id: string; roles: Role[] },
+    user: Actor,
     dto: CreateRescheduleRequestDto,
   ) {
     if (dto.type === RescheduleRequestType.RESCHEDULE && !dto.proposedDate) {
@@ -52,12 +97,13 @@ export class RescheduleService {
       entityId: request.id,
       details: { lessonId, type: dto.type, proposedDate: dto.proposedDate },
     });
+    this.notifier.rescheduleRequestChanged(request.id);
     return request;
   }
 
   // Учитель может заявлять только по своим урокам, родитель — по урокам своих детей
   private async assertOwnsLesson(
-    user: { id: string; roles: Role[] },
+    user: Actor,
     teacherId: string,
     studentId: string,
   ) {
@@ -89,15 +135,17 @@ export class RescheduleService {
     });
   }
 
-  async approve(requestId: string, resolvedByUserId: string) {
-    const request = await this.findByIdOrThrow(requestId);
-
-    if (request.status !== RescheduleRequestStatus.PENDING) {
-      throw new BadRequestException('Request is already resolved');
-    }
+  async approve(requestId: string, actor: Actor) {
+    const request = await this.findForResolve(requestId, actor);
 
     // Изменение урока + закрытие заявки атомарно
     const approved = await this.prisma.$transaction(async (tx) => {
+      await this.closePending(
+        tx,
+        requestId,
+        actor.id,
+        RescheduleRequestStatus.APPROVED,
+      );
       if (request.type === RescheduleRequestType.CANCEL) {
         await this.lessonsService.cancelWithin(tx, request.lessonId);
       } else {
@@ -105,14 +153,8 @@ export class RescheduleService {
           newDate: request.proposedDate!.toISOString(),
         });
       }
-
-      return tx.rescheduleRequest.update({
+      return tx.rescheduleRequest.findUniqueOrThrow({
         where: { id: requestId },
-        data: {
-          status: RescheduleRequestStatus.APPROVED,
-          resolvedById: resolvedByUserId,
-          resolvedAt: new Date(),
-        },
         include: { lesson: true },
       });
     });
@@ -120,47 +162,115 @@ export class RescheduleService {
       action: 'reschedule_request.approved',
       entityType: 'RescheduleRequest',
       entityId: requestId,
+      actorId: actor.id,
       details: {
         lessonId: request.lessonId,
         type: request.type,
         proposedDate: request.proposedDate?.toISOString(),
       },
     });
+    this.notifier.rescheduleRequestChanged(requestId);
+    if (request.type === RescheduleRequestType.CANCEL) {
+      this.notifier.lessonCanceled(request.lessonId);
+    } else {
+      this.notifier.lessonRescheduled(
+        request.lessonId,
+        request.lesson.scheduledAt,
+      );
+    }
     return approved;
   }
 
-  async reject(requestId: string, resolvedByUserId: string) {
-    const request = await this.findByIdOrThrow(requestId);
+  async reject(requestId: string, actor: Actor) {
+    const request = await this.findForResolve(requestId, actor);
 
-    if (request.status !== RescheduleRequestStatus.PENDING) {
-      throw new BadRequestException('Request is already resolved');
-    }
-
-    const rejected = await this.prisma.rescheduleRequest.update({
+    await this.closePending(
+      this.prisma,
+      requestId,
+      actor.id,
+      RescheduleRequestStatus.REJECTED,
+    );
+    const rejected = await this.prisma.rescheduleRequest.findUniqueOrThrow({
       where: { id: requestId },
-      data: {
-        status: RescheduleRequestStatus.REJECTED,
-        resolvedById: resolvedByUserId,
-        resolvedAt: new Date(),
-      },
       include: { lesson: true },
     });
     this.audit.log({
       action: 'reschedule_request.rejected',
       entityType: 'RescheduleRequest',
       entityId: requestId,
+      actorId: actor.id,
       details: { lessonId: request.lessonId },
     });
+    this.notifier.rescheduleRequestChanged(requestId);
     return rejected;
   }
 
-  private async findByIdOrThrow(id: string) {
+  private async findForResolve(id: string, actor: Actor) {
     const request = await this.prisma.rescheduleRequest.findUnique({
       where: { id },
+      include: {
+        lesson: { include: { student: { select: { parentId: true } } } },
+      },
     });
     if (!request) {
       throw new NotFoundException('Reschedule request not found');
     }
+    if (request.status !== RescheduleRequestStatus.PENDING) {
+      throw new BadRequestException('Request is already resolved');
+    }
+    this.assertCanResolve(request, actor);
     return request;
+  }
+
+  // Заявку преподавателя решает родитель ученика, заявку родителя — преподаватель.
+  // ADMIN/MANAGER — любую
+  private assertCanResolve(
+    request: {
+      createdById: string;
+      lesson: { teacherId: string; student: { parentId: string | null } };
+    },
+    actor: Actor,
+  ) {
+    if (
+      actor.roles.includes(Role.ADMIN) ||
+      actor.roles.includes(Role.MANAGER)
+    ) {
+      return;
+    }
+    const { teacherId, student } = request.lesson;
+    const otherSide =
+      request.createdById === teacherId ? student.parentId : teacherId;
+    if (actor.id !== otherSide || actor.id === request.createdById) {
+      throw new ForbiddenException(
+        'Only the other side or staff can resolve this request',
+      );
+    }
+  }
+
+  // Условный апдейт закрывает гонку двойного подтверждения (двойной клик по кнопке):
+  // второй запрос уже не найдёт PENDING и не перенесёт урок повторно
+  private async closePending(
+    tx: Prisma.TransactionClient,
+    id: string,
+    resolvedById: string,
+    status: RescheduleRequestStatus,
+  ) {
+    const { count } = await tx.rescheduleRequest.updateMany({
+      where: { id, status: RescheduleRequestStatus.PENDING },
+      data: { status, resolvedById, resolvedAt: new Date() },
+    });
+    if (!count) throw new BadRequestException('Request is already resolved');
+  }
+
+  // В личном чате chat.id совпадает с Telegram user id — по нему опознаём
+  // нажавшего кнопку в группе
+  private async findTelegramActor(telegramUserId: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { telegramChatId: String(telegramUserId) },
+      include: UsersService.profileExists,
+    });
+    return user?.isActive
+      ? { id: user.id, roles: UsersService.resolveRoles(user) }
+      : null;
   }
 }

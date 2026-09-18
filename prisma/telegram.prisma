@@ -2,20 +2,20 @@
 // TELEGRAM ИНТЕГРАЦИЯ
 // ============================================================================
 
+// Группу создаёт человек (Bot API не умеет создавать чаты), бот привязывает её
+// к ученику по одноразовой ссылке t.me/<bot>?startgroup=<token>
 model TelegramGroup {
   id String @id @default(cuid())
 
   studentId String         @unique // userId ученика
-  student   StudentProfile @relation(fields: [studentId], references: [userId])
+  student   StudentProfile @relation(fields: [studentId], references: [userId], onDelete: Cascade)
 
   telegramChatId String @unique // ID чата/группы в Telegram
 
-  isActive Boolean @default(true)
+  isActive Boolean @default(true) // false — бота удалили из группы
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  notifications TelegramNotification[]
 
   @@map("telegram_groups")
 }
@@ -27,25 +27,53 @@ enum NotificationType {
   RESCHEDULE_REQUEST
   MATERIAL_ADDED
   PAYOUT_NOTIFICATION
+  STAFF_DIGEST
+  LESSON_REMINDER_DAY // за сутки до занятия
+  LESSON_REMINDER_SOON // за 15 минут
 }
 
+// Outbox: строка — желаемое состояние сообщения в Telegram.
+// sentAt = null → воркер отправит (или отредактирует, если telegramMessageId уже есть)
 model TelegramNotification {
   id String @id @default(cuid())
 
-  groupId String
-  group   TelegramGroup @relation(fields: [groupId], references: [id])
+  chatId String // группа ученика или личка пользователя
+  type   NotificationType
 
-  type    NotificationType
-  payload Json             // произвольные данные уведомления
+  entityId String? // reportId / requestId / lessonId / payoutId
 
-  telegramMessageId String? // ID отправленного сообщения в Telegram
+  text        String @db.Text // HTML
+  replyMarkup Json? // inline-кнопки
+
+  telegramMessageId Int?
   sentAt            DateTime?
-  error             String?  // ошибка отправки, если была
+  attempts          Int       @default(0)
+  error             String? // последняя ошибка отправки
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@index([groupId])
-  @@index([type])
-  @@index([createdAt])
+  @@index([sentAt])
+  @@index([type, entityId])
   @@map("telegram_notifications")
+}
+
+enum TelegramLinkKind {
+  GROUP // привязка группы ученика (userId = ученик)
+  PRIVATE // привязка личного чата пользователя
+}
+
+// Одноразовый токен для deep link, удаляется при использовании
+model TelegramLinkToken {
+  token String @id
+
+  kind TelegramLinkKind
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime
+
+  @@index([userId])
+  @@map("telegram_link_tokens")
 }

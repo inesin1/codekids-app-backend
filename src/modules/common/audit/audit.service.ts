@@ -14,13 +14,18 @@ export class AuditService {
     private readonly cls: ClsService,
   ) {}
 
-  // Актор берётся из CLS-контекста запроса; вне HTTP (cron) — система (userId = null).
+  // Актор берётся из CLS-контекста запроса; вне HTTP (cron) — система (userId = null),
+  // если не передан явно (кнопки в Telegram).
   // Fire-and-forget: ошибка записи аудита не должна ронять бизнес-операцию.
-  log(entry: {
+  log({
+    actorId,
+    ...entry
+  }: {
     action: string;
     entityType: string;
     entityId?: string;
     details?: object;
+    actorId?: string;
   }): void {
     const req = this.cls.isActive()
       ? this.cls.get<Request | undefined>(CLS_REQ)
@@ -37,7 +42,7 @@ export class AuditService {
         data: {
           ...entry,
           details,
-          userId: req?.user?.id ?? null,
+          userId: actorId ?? req?.user?.id ?? null,
           ipAddress: req?.ip,
           userAgent: req?.headers['user-agent'],
         },

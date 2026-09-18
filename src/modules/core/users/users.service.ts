@@ -267,6 +267,7 @@ export class UsersService {
                 },
               },
             },
+            telegramGroup: { select: { isActive: true } },
           },
         },
       },
