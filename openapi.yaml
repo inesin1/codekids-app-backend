@@ -20,6 +20,7 @@ tags:
   - name: Materials
   - name: Reschedule Requests
   - name: Payouts
+  - name: Telegram
 
 paths:
   # ── Health ──────────────────────────────────────────────────────────────────
@@ -943,6 +944,88 @@ paths:
         '400':
           description: Payout is not in PENDING status
 
+  # ── Telegram ────────────────────────────────────────────────────────────────
+  /telegram/groups/{studentId}/link:
+    post:
+      tags: [Telegram]
+      summary: Create one-time link to bind a Telegram group to a student
+      description: 'Roles: ADMIN, MANAGER. Link t.me/<bot>?startgroup=<token>, single-use, valid 24h'
+      parameters:
+        - $ref: '#/components/parameters/StudentId'
+      responses:
+        '201':
+          description: Link created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelegramLink'
+        '404':
+          description: Student not found
+        '503':
+          description: Telegram is not configured
+
+  /telegram/groups/{studentId}:
+    delete:
+      tags: [Telegram]
+      summary: Unbind student's Telegram group
+      description: 'Roles: ADMIN, MANAGER'
+      parameters:
+        - $ref: '#/components/parameters/StudentId'
+      responses:
+        '200':
+          description: Unbound
+
+  /telegram/users/{userId}/link:
+    post:
+      tags: [Telegram]
+      summary: Create one-time link to connect user's private Telegram chat
+      description: 'Self, or ADMIN/MANAGER for any user. Link t.me/<bot>?start=<token>, single-use, valid 24h'
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '201':
+          description: Link created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelegramLink'
+        '403':
+          description: Not self and not staff
+        '404':
+          description: User not found
+        '503':
+          description: Telegram is not configured
+    delete:
+      tags: [Telegram]
+      summary: Disconnect user's private Telegram chat
+      description: 'Self, or ADMIN/MANAGER for any user'
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Disconnected
+        '403':
+          description: Not self and not staff
+
+  /telegram/webhook:
+    post:
+      tags: [Telegram]
+      summary: Telegram Bot API webhook
+      description: Public. Requires X-Telegram-Bot-Api-Secret-Token header equal to TELEGRAM_WEBHOOK_SECRET
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Telegram Update object
+      responses:
+        '201':
+          description: Update processed
+        '401':
+          description: Invalid secret token
+
 # ── Components ────────────────────────────────────────────────────────────────
 components:
   securitySchemes:
@@ -952,6 +1035,18 @@ components:
       bearerFormat: JWT
 
   parameters:
+    StudentId:
+      name: studentId
+      in: path
+      required: true
+      schema:
+        type: string
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
     Id:
       name: id
       in: path
@@ -1045,8 +1140,6 @@ components:
           maxLength: 20
         avatarUrl:
           type: string
-        telegramChatId:
-          type: string
 
     CreateStudentDto:
       allOf:
@@ -1089,8 +1182,6 @@ components:
           type: string
           maxLength: 20
         avatarUrl:
-          type: string
-        telegramChatId:
           type: string
 
     User:
@@ -1745,6 +1836,13 @@ components:
           type: string
         user:
           $ref: '#/components/schemas/User'
+
+    TelegramLink:
+      type: object
+      properties:
+        url:
+          type: string
+          example: https://t.me/codekids_bot?startgroup=3q2-7wEAAAAAAAAAAAAAAA
 
 security:
   - BearerAuth: []
