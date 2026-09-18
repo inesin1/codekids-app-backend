@@ -22,10 +22,6 @@ export class PersonFieldsDto {
   avatarUrl?: string;
 
   @IsOptional()
-  @IsString()
-  telegramChatId?: string;
-
-  @IsOptional()
   @ValidateNested({ each: true })
   @Type(() => ContactDto)
   @ArrayMaxSize(30)
