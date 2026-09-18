@@ -22,7 +22,9 @@ model User {
   isActive   Boolean @default(true)
   avatarUrl  String?
 
-  telegramChatId String? @unique // для прямых уведомлений пользователю
+  // Личный чат с ботом (= Telegram user id). Ставит только бот: по нему опознаётся
+  // нажавший inline-кнопку, ручной ввод позволил бы действовать от чужого имени
+  telegramChatId String? @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -35,6 +37,7 @@ model User {
   // Общие связи
   refreshTokens     RefreshToken[]
   auditLogs         AuditLog[]
+  telegramLinkTokens TelegramLinkToken[]
   rescheduleRequestsCreated RescheduleRequest[] @relation("RescheduleCreatedBy")
   rescheduleRequestsResolved RescheduleRequest[] @relation("RescheduleResolvedBy")
 
