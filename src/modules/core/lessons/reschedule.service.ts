@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  Prisma,
   Role,
   RescheduleRequestStatus,
   RescheduleRequestType,
@@ -98,6 +99,12 @@ export class RescheduleService {
 
     // Изменение урока + закрытие заявки атомарно
     const approved = await this.prisma.$transaction(async (tx) => {
+      await this.closePending(
+        tx,
+        requestId,
+        resolvedByUserId,
+        RescheduleRequestStatus.APPROVED,
+      );
       if (request.type === RescheduleRequestType.CANCEL) {
         await this.lessonsService.cancelWithin(tx, request.lessonId);
       } else {
@@ -105,14 +112,8 @@ export class RescheduleService {
           newDate: request.proposedDate!.toISOString(),
         });
       }
-
-      return tx.rescheduleRequest.update({
+      return tx.rescheduleRequest.findUniqueOrThrow({
         where: { id: requestId },
-        data: {
-          status: RescheduleRequestStatus.APPROVED,
-          resolvedById: resolvedByUserId,
-          resolvedAt: new Date(),
-        },
         include: { lesson: true },
       });
     });
@@ -136,13 +137,14 @@ export class RescheduleService {
       throw new BadRequestException('Request is already resolved');
     }
 
-    const rejected = await this.prisma.rescheduleRequest.update({
+    await this.closePending(
+      this.prisma,
+      requestId,
+      resolvedByUserId,
+      RescheduleRequestStatus.REJECTED,
+    );
+    const rejected = await this.prisma.rescheduleRequest.findUniqueOrThrow({
       where: { id: requestId },
-      data: {
-        status: RescheduleRequestStatus.REJECTED,
-        resolvedById: resolvedByUserId,
-        resolvedAt: new Date(),
-      },
       include: { lesson: true },
     });
     this.audit.log({
@@ -152,6 +154,21 @@ export class RescheduleService {
       details: { lessonId: request.lessonId },
     });
     return rejected;
+  }
+
+  // Условный апдейт закрывает гонку двойного подтверждения:
+  // второй запрос уже не найдёт PENDING и не изменит урок повторно
+  private async closePending(
+    tx: Prisma.TransactionClient,
+    id: string,
+    resolvedById: string,
+    status: RescheduleRequestStatus,
+  ) {
+    const { count } = await tx.rescheduleRequest.updateMany({
+      where: { id, status: RescheduleRequestStatus.PENDING },
+      data: { status, resolvedById, resolvedAt: new Date() },
+    });
+    if (!count) throw new BadRequestException('Request is already resolved');
   }
 
   private async findByIdOrThrow(id: string) {
