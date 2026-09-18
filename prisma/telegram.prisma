@@ -28,6 +28,8 @@ enum NotificationType {
   MATERIAL_ADDED
   PAYOUT_NOTIFICATION
   STAFF_DIGEST
+  LESSON_REMINDER_DAY // за сутки до занятия
+  LESSON_REMINDER_SOON // за 15 минут
 }
 
 // Outbox: строка — желаемое состояние сообщения в Telegram.

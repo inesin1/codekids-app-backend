@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import {
+  LessonStatus,
   NotificationType,
   PayoutStatus,
   RescheduleRequestStatus,
@@ -23,13 +25,33 @@ const lessonContext = {
   enrollment: { include: { course: true } },
 } as const;
 
+const MINUTE_MS = 60 * 1000;
+
+// Окно (от, до] относительно текущего момента. Нижняя граница дневного окна —
+// 23ч: занятие, созданное или перенесённое меньше чем за сутки, дневное
+// напоминание не получает (о переносе и так пришло сообщение)
+const LESSON_REMINDERS = [
+  {
+    type: NotificationType.LESSON_REMINDER_DAY,
+    fromMs: 23 * 60 * MINUTE_MS,
+    toMs: 24 * 60 * MINUTE_MS,
+    title: '📅 <b>Напоминание о занятии</b>',
+  },
+  {
+    type: NotificationType.LESSON_REMINDER_SOON,
+    fromMs: 0,
+    toMs: 15 * MINUTE_MS,
+    title: '⏰ <b>Занятие скоро начнётся</b>',
+  },
+];
+
 type LessonHeader = {
   scheduledAt: Date;
   student: { user: { firstName: string; lastName: string } };
   enrollment: { course: { name: string } };
 };
 
-// Шаблоны уведомлений. Все методы fire-and-forget, как AuditService.log:
+// Шаблоны уведомлений. Событийные методы fire-and-forget, как AuditService.log:
 // сбой Telegram не должен ронять бизнес-операцию
 @Injectable()
 export class TelegramNotifier {
@@ -237,6 +259,52 @@ export class TelegramNotifier {
         });
       }
     });
+  }
+
+  // Дедуп по (type, lessonId): каждое напоминание уходит один раз на занятие
+  @Cron(CronExpression.EVERY_MINUTE)
+  async sendLessonReminders() {
+    if (!this.telegram.enabled) return;
+    const now = Date.now();
+
+    for (const reminder of LESSON_REMINDERS) {
+      const lessons = await this.prisma.lesson.findMany({
+        where: {
+          status: LessonStatus.SCHEDULED,
+          scheduledAt: {
+            gt: new Date(now + reminder.fromMs),
+            lte: new Date(now + reminder.toMs),
+          },
+          student: { telegramGroup: { isActive: true } },
+        },
+        include: lessonContext,
+      });
+      if (!lessons.length) continue;
+
+      const sent = await this.prisma.telegramNotification.findMany({
+        where: {
+          type: reminder.type,
+          entityId: { in: lessons.map((l) => l.id) },
+        },
+        select: { entityId: true },
+      });
+      const sentIds = new Set(sent.map((n) => n.entityId));
+
+      for (const lesson of lessons) {
+        const chatId = this.groupChat(lesson.student);
+        if (!chatId || sentIds.has(lesson.id)) continue;
+        await this.telegram.enqueue({
+          chatId,
+          type: reminder.type,
+          entityId: lesson.id,
+          text: [
+            reminder.title,
+            this.header(lesson),
+            `👩‍🏫 ${fullName(lesson.teacher.user)}`,
+          ].join('\n'),
+        });
+      }
+    }
   }
 
   // Выплаты — только в личку преподу, не в группу ученика
