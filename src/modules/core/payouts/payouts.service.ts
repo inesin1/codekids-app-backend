@@ -7,6 +7,7 @@ import {
 import { Prisma, LessonStatus, PayoutStatus } from '../../../generated/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { TelegramNotifier } from '../../common/telegram/telegram.notifier';
 import { CalculatePayoutDto } from './dto/calculate-payout.dto';
 import { CalculateAllPayoutsDto } from './dto/calculate-all-payouts.dto';
 
@@ -19,6 +20,7 @@ export class PayoutsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifier: TelegramNotifier,
   ) {}
 
   async calculate(dto: CalculatePayoutDto) {
@@ -101,6 +103,7 @@ export class PayoutsService {
         totalPay: Number(payout.totalPay),
       },
     });
+    this.notifier.payoutChanged(payout.id);
     return payout;
   }
 
@@ -204,6 +207,7 @@ export class PayoutsService {
         totalPay: Number(payout.totalPay),
       },
     });
+    this.notifier.payoutChanged(id);
     return paid;
   }
 }

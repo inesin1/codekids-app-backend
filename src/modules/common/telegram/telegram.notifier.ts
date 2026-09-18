@@ -2,11 +2,19 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   NotificationType,
+  PayoutStatus,
   RescheduleRequestStatus,
   RescheduleRequestType,
 } from '../../../generated/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { clip, esc, formatDateTime, fullName } from './telegram.format';
+import {
+  clip,
+  esc,
+  formatDate,
+  formatDateTime,
+  fullName,
+  money,
+} from './telegram.format';
 import { TelegramService } from './telegram.service';
 
 const lessonContext = {
@@ -228,6 +236,35 @@ export class TelegramNotifier {
           replyMarkup,
         });
       }
+    });
+  }
+
+  // Выплаты — только в личку преподу, не в группу ученика
+  payoutChanged(payoutId: string) {
+    this.fire('payoutChanged', async () => {
+      const payout = await this.prisma.payout.findUniqueOrThrow({
+        where: { id: payoutId },
+        include: { teacher: { include: { user: true } } },
+      });
+      const chatId = payout.teacher.user.telegramChatId;
+      if (!chatId) return;
+
+      // periodEnd не включается в период [start, end)
+      const periodEnd = new Date(payout.periodEnd.getTime() - 1);
+      await this.telegram.enqueue({
+        chatId,
+        type: NotificationType.PAYOUT_NOTIFICATION,
+        entityId: payoutId,
+        text: [
+          payout.status === PayoutStatus.PAID
+            ? '✅ <b>Выплата произведена</b>'
+            : '💰 <b>Начислена выплата</b>',
+          `Период: ${formatDate(payout.periodStart)} — ${formatDate(periodEnd)}`,
+          `Занятия: ${money(payout.basePay)}`,
+          `Премии за отчёты: ${money(payout.bonusPay)}`,
+          `<b>Итого: ${money(payout.totalPay)}</b>`,
+        ].join('\n'),
+      });
     });
   }
 
