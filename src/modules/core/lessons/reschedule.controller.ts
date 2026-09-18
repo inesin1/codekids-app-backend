@@ -30,12 +30,12 @@ export class RescheduleController {
   @Roles(Role.ADMIN, Role.MANAGER)
   @Post('reschedule-requests/:id/approve')
   approve(@Req() req: Express.Request, @Param('id') id: string) {
-    return this.rescheduleService.approve(id, req.user!.id);
+    return this.rescheduleService.approve(id, req.user!);
   }
 
   @Roles(Role.ADMIN, Role.MANAGER)
   @Post('reschedule-requests/:id/reject')
   reject(@Req() req: Express.Request, @Param('id') id: string) {
-    return this.rescheduleService.reject(id, req.user!.id);
+    return this.rescheduleService.reject(id, req.user!);
   }
 }

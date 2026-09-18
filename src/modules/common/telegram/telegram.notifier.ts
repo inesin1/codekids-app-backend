@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { NotificationType } from '../../../generated/client';
+import {
+  NotificationType,
+  RescheduleRequestStatus,
+  RescheduleRequestType,
+} from '../../../generated/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { clip, esc, formatDateTime, fullName } from './telegram.format';
 import { TelegramService } from './telegram.service';
@@ -149,6 +153,81 @@ export class TelegramNotifier {
           this.lessonLink(target.id),
         ].join('\n'),
       });
+    });
+  }
+
+  // Создание и решение заявки — одно сообщение: при решении оно редактируется
+  // и теряет кнопки
+  rescheduleRequestChanged(requestId: string) {
+    this.fire('rescheduleRequestChanged', async () => {
+      const request = await this.prisma.rescheduleRequest.findUniqueOrThrow({
+        where: { id: requestId },
+        include: {
+          lesson: { include: lessonContext },
+          createdBy: true,
+          resolvedBy: true,
+        },
+      });
+      const { lesson } = request;
+      const chatId = this.groupChat(lesson.student);
+      if (!chatId) return;
+
+      const isCancel = request.type === RescheduleRequestType.CANCEL;
+      const fromTeacher = request.createdById === lesson.teacherId;
+      const pending = request.status === RescheduleRequestStatus.PENDING;
+      const status = {
+        [RescheduleRequestStatus.PENDING]: `⏳ Ждёт подтверждения: ${fromTeacher ? 'родитель' : 'преподаватель'} или менеджер`,
+        [RescheduleRequestStatus.APPROVED]: `✅ Подтверждено: ${request.resolvedBy ? fullName(request.resolvedBy) : '—'}`,
+        [RescheduleRequestStatus.REJECTED]: `🚫 Отклонено: ${request.resolvedBy ? fullName(request.resolvedBy) : '—'}`,
+      }[request.status];
+
+      const text = [
+        isCancel
+          ? '❌ <b>Заявка на отмену занятия</b>'
+          : '🔄 <b>Заявка на перенос занятия</b>',
+        this.header(lesson),
+        ...(request.proposedDate
+          ? [
+              `➡️ Новая дата: <b>${formatDateTime(request.proposedDate)}</b> (МСК)`,
+            ]
+          : []),
+        `👤 ${fullName(request.createdBy)} (${fromTeacher ? 'преподаватель' : 'родитель'})`,
+        ...(request.reason ? [`💬 ${clip(request.reason, 500)}`] : []),
+        '',
+        status,
+      ].join('\n');
+      const replyMarkup = pending
+        ? {
+            inline_keyboard: [
+              [
+                {
+                  text: '✅ Подтвердить',
+                  callback_data: `rr:approve:${request.id}`,
+                },
+                {
+                  text: '🚫 Отклонить',
+                  callback_data: `rr:reject:${request.id}`,
+                },
+              ],
+            ],
+          }
+        : // Пустая клавиатура снимает кнопки при редактировании
+          { inline_keyboard: [] };
+
+      const updated = await this.telegram.updateMessage(
+        NotificationType.RESCHEDULE_REQUEST,
+        requestId,
+        { text, replyMarkup },
+      );
+      if (!updated && pending) {
+        await this.telegram.enqueue({
+          chatId,
+          type: NotificationType.RESCHEDULE_REQUEST,
+          entityId: requestId,
+          text,
+          replyMarkup,
+        });
+      }
     });
   }
 
