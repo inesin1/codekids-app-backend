@@ -42,12 +42,14 @@ describe('TelegramService.flush', () => {
       updateMany: jest.Mock;
     };
     lessonReport: { updateMany: jest.Mock };
+    material: { findUniqueOrThrow: jest.Mock; updateMany: jest.Mock };
     rescheduleRequest: { updateMany: jest.Mock };
     telegramGroup: { updateMany: jest.Mock };
     user: { updateMany: jest.Mock };
   };
   let sendMessage: jest.SpyInstance;
   let editMessageText: jest.SpyInstance;
+  let sendDocument: jest.SpyInstance;
   const now = new Date('2026-09-18T10:00:00Z');
 
   beforeEach(() => {
@@ -59,6 +61,10 @@ describe('TelegramService.flush', () => {
         updateMany: jest.fn(),
       },
       lessonReport: { updateMany: jest.fn() },
+      material: {
+        findUniqueOrThrow: jest.fn(),
+        updateMany: jest.fn(),
+      },
       rescheduleRequest: { updateMany: jest.fn() },
       telegramGroup: { updateMany: jest.fn() },
       user: { updateMany: jest.fn() },
@@ -74,6 +80,9 @@ describe('TelegramService.flush', () => {
     editMessageText = jest
       .spyOn(service.bot!.api, 'editMessageText')
       .mockResolvedValue(true as never);
+    sendDocument = jest
+      .spyOn(service.bot!.api, 'sendDocument')
+      .mockResolvedValue({ message_id: 43 } as never);
   });
 
   afterEach(() => {
@@ -118,7 +127,10 @@ describe('TelegramService.flush', () => {
       expect.anything(),
     );
     expect(sendMessage).not.toHaveBeenCalled();
-    expect(prisma.lessonReport.updateMany).not.toHaveBeenCalled();
+    expect(prisma.lessonReport.updateMany).toHaveBeenCalledWith({
+      where: { id: 'r1' },
+      data: { sentToTelegram: true },
+    });
   });
 
   it('должен считать «message is not modified» успехом', async () => {
@@ -166,5 +178,27 @@ describe('TelegramService.flush', () => {
       data: { attempts: { increment: 1 }, error: 'network down' },
     });
     expect(prisma.telegramGroup.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('должен отправлять материал как документ', async () => {
+    prisma.telegramNotification.findMany.mockResolvedValue([
+      makeRow({ type: NotificationType.MATERIAL_ADDED, entityId: 'm1' }),
+    ]);
+    prisma.material.findUniqueOrThrow.mockResolvedValue({
+      title: 'lesson.pdf',
+      fileData: Uint8Array.from([1, 2, 3]),
+    });
+
+    await service.flush();
+
+    expect(sendDocument).toHaveBeenCalledWith('-100', expect.anything(), {
+      caption: 'текст',
+      parse_mode: 'HTML',
+    });
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(prisma.material.updateMany).toHaveBeenCalledWith({
+      where: { id: 'm1' },
+      data: { sentToTelegram: true },
+    });
   });
 });

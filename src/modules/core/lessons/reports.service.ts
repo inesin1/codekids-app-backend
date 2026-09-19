@@ -5,7 +5,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, LessonStatus } from '../../../generated/client';
+import {
+  LessonReportStatus,
+  LessonStatus,
+  Prisma,
+} from '../../../generated/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { TelegramNotifier } from '../../common/telegram/telegram.notifier';
@@ -28,7 +32,7 @@ export class ReportsService {
       Number(config.get('BONUS_WINDOW_HOURS') ?? 24) * 60 * 60 * 1000;
   }
 
-  /** Создает отчет по проведенному занятию и начисляет бонус при своевременной сдаче. */
+  /** Создает черновик отчета по проведенному занятию. */
   async create(lessonId: string, dto: CreateReportDto) {
     const lesson = await this.prisma.lesson.findUnique({
       where: { id: lessonId },
@@ -44,26 +48,18 @@ export class ReportsService {
       throw new ConflictException('Report already exists for this lesson');
     }
 
-    const bonusApplied =
-      !!lesson.completedAt && this.isWithinBonusWindow(lesson.completedAt);
-
     const report = await this.prisma.lessonReport.create({
       data: {
         lessonId,
         ...dto,
-        bonusApplied,
-        bonusAmount: bonusApplied
-          ? new Prisma.Decimal(this.bonusAmount)
-          : undefined,
       },
     });
     this.audit.log({
       action: 'lesson_report.created',
       entityType: 'LessonReport',
       entityId: report.id,
-      details: { lessonId, bonusApplied },
+      details: { lessonId },
     });
-    this.notifier.reportSaved(report.id);
     return report;
   }
 
@@ -96,7 +92,11 @@ export class ReportsService {
 
     const updated = await this.prisma.lessonReport.update({
       where: { lessonId },
-      data: dto,
+      data: {
+        ...dto,
+        status: LessonReportStatus.DRAFT,
+        sentToTelegram: false,
+      },
     });
     this.audit.log({
       action: 'lesson_report.updated',
@@ -104,8 +104,48 @@ export class ReportsService {
       entityId: report.id,
       details: { lessonId },
     });
-    this.notifier.reportSaved(report.id);
     return updated;
+  }
+
+  /** Отправляет готовый отчет и его вложения в Telegram. */
+  async submit(lessonId: string) {
+    const report = await this.prisma.lessonReport.findUnique({
+      where: { lessonId },
+      include: { lesson: { select: { completedAt: true } } },
+    });
+    if (!report) throw new NotFoundException('Report not found');
+
+    const firstSubmission = !report.submittedAt;
+    const edited =
+      report.status === LessonReportStatus.DRAFT && !firstSubmission;
+    const bonusApplied =
+      report.bonusApplied ||
+      (firstSubmission &&
+        !!report.lesson.completedAt &&
+        this.isWithinBonusWindow(report.lesson.completedAt));
+    const submitted = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.lessonReport.update({
+        where: { id: report.id },
+        data: {
+          status: LessonReportStatus.SUBMITTED,
+          submittedAt: new Date(),
+          sentToTelegram: false,
+          bonusApplied,
+          bonusAmount:
+            report.bonusAmount ??
+            (bonusApplied ? new Prisma.Decimal(this.bonusAmount) : undefined),
+        },
+      });
+      await this.notifier.queueReport(report.id, edited, tx);
+      return updated;
+    });
+    this.audit.log({
+      action: 'lesson_report.submitted',
+      entityType: 'LessonReport',
+      entityId: report.id,
+      details: { lessonId, bonusApplied },
+    });
+    return submitted;
   }
 
   /** Проверяет, укладывается ли время сдачи в бонусное окно. */

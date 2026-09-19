@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Delete,
   ForbiddenException,
@@ -32,6 +33,7 @@ export class MaterialsController {
   async upload(
     @Req() req: Express.Request,
     @Param('lessonId') lessonId: string,
+    @Body('reportId') reportId?: string,
     @UploadedFile()
     file?: {
       originalname: string;
@@ -42,12 +44,16 @@ export class MaterialsController {
   ) {
     if (!file) throw new BadRequestException('File is required');
     await this.assertAccess(req.user!, lessonId);
-    return this.materialsService.createUploaded(lessonId, {
-      name: file.originalname,
-      type: file.mimetype || 'application/octet-stream',
-      size: file.size,
-      data: Uint8Array.from(file.buffer),
-    });
+    return this.materialsService.createUploaded(
+      lessonId,
+      {
+        name: file.originalname,
+        type: file.mimetype || 'application/octet-stream',
+        size: file.size,
+        data: Uint8Array.from(file.buffer),
+      },
+      reportId,
+    );
   }
 
   @Get(':id/file')

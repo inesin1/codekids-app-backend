@@ -24,6 +24,16 @@ export class ReportsController {
     return this.reportsService.create(lessonId, dto);
   }
 
+  @Roles(Role.TEACHER)
+  @Post('submit')
+  async submit(
+    @Req() req: Express.Request,
+    @Param('lessonId') lessonId: string,
+  ) {
+    await this.assertTeacherOwns(req.user!.id, lessonId);
+    return this.reportsService.submit(lessonId);
+  }
+
   @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER)
   @Get()
   async findByLessonId(

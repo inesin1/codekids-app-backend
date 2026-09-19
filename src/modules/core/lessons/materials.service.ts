@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { TelegramNotifier } from '../../common/telegram/telegram.notifier';
@@ -28,10 +32,22 @@ export class MaterialsService {
       size: number;
       data: Uint8Array<ArrayBuffer>;
     },
+    reportId?: string,
   ) {
+    if (reportId) {
+      const report = await this.prisma.lessonReport.findFirst({
+        where: { id: reportId, lessonId },
+        select: { id: true },
+      });
+      if (!report) {
+        throw new BadRequestException('Report does not belong to lesson');
+      }
+    }
+
     const material = await this.prisma.material.create({
       data: {
         lessonId,
+        reportId,
         title: file.name,
         fileType: file.type,
         fileSize: file.size,
@@ -45,7 +61,7 @@ export class MaterialsService {
       entityId: material.id,
       details: { lessonId },
     });
-    this.notifier.materialAdded(material.id);
+    if (!reportId) this.notifier.materialAdded(material.id);
     return material;
   }
 
