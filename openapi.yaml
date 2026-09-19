@@ -710,26 +710,6 @@ paths:
 
   # ── Materials ───────────────────────────────────────────────────────────────
   /lessons/{lessonId}/materials:
-    post:
-      tags: [Materials]
-      summary: Add material to lesson
-      description: 'Roles: ADMIN, MANAGER, TEACHER (own lessons)'
-      parameters:
-        - $ref: '#/components/parameters/LessonId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateMaterialDto'
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Material'
-
     get:
       tags: [Materials]
       summary: List lesson materials
@@ -1718,21 +1698,6 @@ components:
           format: date-time
 
     # ── Material DTOs ─────────────────────────────────────────────────────────
-    CreateMaterialDto:
-      type: object
-      required: [title, fileUrl]
-      properties:
-        title:
-          type: string
-        fileUrl:
-          type: string
-          format: uri
-        fileType:
-          type: string
-        fileSize:
-          type: integer
-          minimum: 0
-
     Material:
       type: object
       properties:
@@ -1742,8 +1707,6 @@ components:
           type: string
           nullable: true
         title:
-          type: string
-        fileUrl:
           type: string
         fileType:
           type: string

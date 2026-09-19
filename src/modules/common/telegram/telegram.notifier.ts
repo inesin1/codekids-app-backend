@@ -120,7 +120,6 @@ export class TelegramNotifier {
         where: { id: materialId },
         select: {
           title: true,
-          fileUrl: true,
           lesson: { include: lessonContext },
         },
       });
@@ -138,9 +137,7 @@ export class TelegramNotifier {
           this.header(lesson),
           '',
           `<b>${esc(material.title)}</b>`,
-          material.fileUrl === 'stored'
-            ? this.lessonLink(lesson.id)
-            : esc(material.fileUrl),
+          this.lessonLink(lesson.id),
         ].join('\n'),
       });
     });
