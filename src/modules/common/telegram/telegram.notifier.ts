@@ -76,12 +76,11 @@ export class TelegramNotifier {
 
       const fields: [string, string | null][] = [
         ['Тема', report.topic],
-        ['Что изучили', report.covered],
-        ['Результаты', report.results],
+        ['Что делали', report.covered],
+        ['Итог', report.results],
         ['Домашнее задание', report.homework],
-        ['Рекомендации', report.recommendations],
+        ['Следующий шаг', report.recommendations],
         ['Комментарий для родителя', report.parentComment],
-        ['Дополнительно', report.extraNotes],
       ];
       const edited = report.updatedAt.getTime() !== report.createdAt.getTime();
       const text = [
@@ -119,7 +118,11 @@ export class TelegramNotifier {
     this.fire('materialAdded', async () => {
       const material = await this.prisma.material.findUniqueOrThrow({
         where: { id: materialId },
-        include: { lesson: { include: lessonContext } },
+        select: {
+          title: true,
+          fileUrl: true,
+          lesson: { include: lessonContext },
+        },
       });
       const { lesson } = material;
       if (!lesson) return;
@@ -135,7 +138,9 @@ export class TelegramNotifier {
           this.header(lesson),
           '',
           `<b>${esc(material.title)}</b>`,
-          esc(material.fileUrl),
+          material.fileUrl === 'stored'
+            ? this.lessonLink(lesson.id)
+            : esc(material.fileUrl),
         ].join('\n'),
       });
     });

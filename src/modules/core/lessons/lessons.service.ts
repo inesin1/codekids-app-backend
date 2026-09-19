@@ -10,6 +10,7 @@ import {
   LessonStatus,
   DayOfWeek,
   TransactionType,
+  Role,
 } from '../../../generated/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -33,8 +34,19 @@ const LUXON_WEEKDAY: Record<DayOfWeek, number> = {
 const lessonInclude = {
   teacher: { include: { user: { omit: { password: true } } } },
   student: { include: { user: { omit: { password: true } } } },
+  enrollment: { select: { id: true, courseId: true, course: true } },
   report: true,
-  materials: true,
+  materials: {
+    select: {
+      id: true,
+      lessonId: true,
+      title: true,
+      fileUrl: true,
+      fileType: true,
+      fileSize: true,
+      uploadedAt: true,
+    },
+  },
 } as const;
 
 @Injectable()
@@ -188,7 +200,11 @@ export class LessonsService {
       teacherId?: string;
       studentId?: string;
     },
-    scope?: { teacherUserId?: string; studentUserIds?: string[] },
+    scope?: {
+      teacherUserId?: string;
+      studentUserIds?: string[];
+      hideInternalNotes?: boolean;
+    },
   ) {
     const where: Prisma.LessonWhereInput = {};
 
@@ -209,16 +225,23 @@ export class LessonsService {
       where.studentId = { in: scope.studentUserIds };
     }
 
-    return this.prisma.lesson.findMany({
+    const lessons = await this.prisma.lesson.findMany({
       where,
       include: lessonInclude,
       orderBy: { scheduledAt: 'asc' },
     });
+    return scope?.hideInternalNotes
+      ? lessons.map((lesson) => this.withoutInternalNotes(lesson))
+      : lessons;
   }
 
   async findById(
     id: string,
-    scope?: { teacherUserId?: string; studentUserIds?: string[] },
+    scope?: {
+      teacherUserId?: string;
+      studentUserIds?: string[];
+      hideInternalNotes?: boolean;
+    },
   ) {
     const lesson = await this.prisma.lesson.findUnique({
       where: { id },
@@ -236,7 +259,19 @@ export class LessonsService {
       throw new ForbiddenException('You do not have access to this lesson');
     }
 
-    return lesson;
+    return scope?.hideInternalNotes
+      ? this.withoutInternalNotes(lesson)
+      : lesson;
+  }
+
+  private withoutInternalNotes<
+    T extends { report: { extraNotes: string | null } | null },
+  >(lesson: T): T {
+    if (!lesson.report) return lesson;
+    return {
+      ...lesson,
+      report: { ...lesson.report, extraNotes: null },
+    };
   }
 
   async complete(id: string) {
@@ -490,6 +525,31 @@ export class LessonsService {
     });
     if (!lesson) throw new NotFoundException('Lesson not found');
     if (lesson.teacherId !== teacherUserId) {
+      throw new ForbiddenException('You do not have access to this lesson');
+    }
+  }
+
+  async assertUserCanView(
+    lessonId: string,
+    user: { id: string; roles: Role[] },
+  ) {
+    if (user.roles.includes(Role.ADMIN) || user.roles.includes(Role.MANAGER)) {
+      return;
+    }
+    if (user.roles.includes(Role.TEACHER)) {
+      return this.assertTeacherOwns(lessonId, user.id);
+    }
+
+    const lesson = await this.prisma.lesson.findFirst({
+      where: {
+        id: lessonId,
+        ...(user.roles.includes(Role.PARENT)
+          ? { student: { parentId: user.id } }
+          : { studentId: user.id }),
+      },
+      select: { id: true },
+    });
+    if (!lesson) {
       throw new ForbiddenException('You do not have access to this lesson');
     }
   }
