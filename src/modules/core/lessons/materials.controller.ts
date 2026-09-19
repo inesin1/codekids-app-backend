@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  Body,
   Controller,
   Delete,
   ForbiddenException,
@@ -17,7 +16,6 @@ import { Role } from '../../../generated/client';
 import { Roles } from '../../common/auth/decorators/roles.decorator';
 import { LessonsService } from './lessons.service';
 import { MaterialsService } from './materials.service';
-import { CreateMaterialDto } from './dto/create-material.dto';
 
 @Controller('lessons/:lessonId/materials')
 export class MaterialsController {
@@ -25,17 +23,6 @@ export class MaterialsController {
     private readonly materialsService: MaterialsService,
     private readonly lessonsService: LessonsService,
   ) {}
-
-  @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER)
-  @Post()
-  async create(
-    @Req() req: Express.Request,
-    @Param('lessonId') lessonId: string,
-    @Body() dto: CreateMaterialDto,
-  ) {
-    await this.assertAccess(req.user!, lessonId);
-    return this.materialsService.create(lessonId, dto);
-  }
 
   @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER)
   @Post('upload')

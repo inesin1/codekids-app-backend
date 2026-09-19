@@ -2,13 +2,11 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { TelegramNotifier } from '../../common/telegram/telegram.notifier';
-import { CreateMaterialDto } from './dto/create-material.dto';
 
 const materialSelect = {
   id: true,
   lessonId: true,
   title: true,
-  fileUrl: true,
   fileType: true,
   fileSize: true,
   uploadedAt: true,
@@ -21,21 +19,6 @@ export class MaterialsService {
     private readonly audit: AuditService,
     private readonly notifier: TelegramNotifier,
   ) {}
-
-  async create(lessonId: string, dto: CreateMaterialDto) {
-    const material = await this.prisma.material.create({
-      data: { lessonId, ...dto },
-      select: materialSelect,
-    });
-    this.audit.log({
-      action: 'material.created',
-      entityType: 'Material',
-      entityId: material.id,
-      details: { lessonId },
-    });
-    this.notifier.materialAdded(material.id);
-    return material;
-  }
 
   async createUploaded(
     lessonId: string,
@@ -50,7 +33,6 @@ export class MaterialsService {
       data: {
         lessonId,
         title: file.name,
-        fileUrl: 'stored',
         fileType: file.type,
         fileSize: file.size,
         fileData: file.data,

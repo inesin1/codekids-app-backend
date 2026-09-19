@@ -184,10 +184,9 @@ model Material {
   lesson   Lesson? @relation(fields: [lessonId], references: [id])
 
   title    String
-  fileUrl  String
-  fileType String? // "pdf", "zip", "link" и т.д.
+  fileType String? // MIME-тип файла
   fileSize Int?    // размер в байтах
-  fileData Bytes?
+  fileData Bytes
 
   uploadedAt DateTime @default(now())
 

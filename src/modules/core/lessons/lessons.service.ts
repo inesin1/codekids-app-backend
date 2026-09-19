@@ -41,7 +41,6 @@ const lessonInclude = {
       id: true,
       lessonId: true,
       title: true,
-      fileUrl: true,
       fileType: true,
       fileSize: true,
       uploadedAt: true,
