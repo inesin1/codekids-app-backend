@@ -708,6 +708,23 @@ paths:
               schema:
                 $ref: '#/components/schemas/LessonReport'
 
+  /lessons/{lessonId}/report/submit:
+    post:
+      tags: [Reports]
+      summary: Submit report and queue it with its attachments for Telegram delivery
+      description: 'Roles: TEACHER (own lessons only)'
+      parameters:
+        - $ref: '#/components/parameters/LessonId'
+      responses:
+        '201':
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LessonReport'
+        '404':
+          description: Report not found
+
   # ── Materials ───────────────────────────────────────────────────────────────
   /lessons/{lessonId}/materials:
     get:
@@ -759,6 +776,8 @@ paths:
                 file:
                   type: string
                   format: binary
+                reportId:
+                  type: string
       responses:
         '201':
           description: Uploaded
@@ -1690,6 +1709,13 @@ components:
           description: Decimal
         sentToTelegram:
           type: boolean
+        status:
+          type: string
+          enum: [DRAFT, SUBMITTED]
+        submittedAt:
+          type: string
+          format: date-time
+          nullable: true
         createdAt:
           type: string
           format: date-time

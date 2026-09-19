@@ -9,7 +9,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { Bot, CommandContext, Context, GrammyError } from 'grammy';
+import { Bot, CommandContext, Context, GrammyError, InputFile } from 'grammy';
 import type { Update } from 'grammy/types';
 import {
   NotificationType,
@@ -257,8 +257,9 @@ export class TelegramService
       type: NotificationType;
       entityId?: string;
     },
+    db: PrismaService | Prisma.TransactionClient = this.prisma,
   ) {
-    await this.prisma.telegramNotification.create({
+    await db.telegramNotification.create({
       data: { ...msg, replyMarkup: msg.replyMarkup ?? Prisma.DbNull },
     });
   }
@@ -268,8 +269,9 @@ export class TelegramService
     type: NotificationType,
     entityId: string,
     msg: OutgoingMessage,
+    db: PrismaService | Prisma.TransactionClient = this.prisma,
   ) {
-    const { count } = await this.prisma.telegramNotification.updateMany({
+    const { count } = await db.telegramNotification.updateMany({
       where: { type, entityId },
       data: {
         text: msg.text,
@@ -318,7 +320,28 @@ export class TelegramService
         | undefined,
     };
     try {
-      if (row.telegramMessageId) {
+      if (row.type === NotificationType.MATERIAL_ADDED && row.entityId) {
+        const material = await this.prisma.material.findUniqueOrThrow({
+          where: { id: row.entityId },
+          select: { title: true, fileData: true },
+        });
+        if (row.telegramMessageId) {
+          await bot.api.editMessageCaption(row.chatId, row.telegramMessageId, {
+            caption: row.text,
+            parse_mode: 'HTML',
+          });
+        } else {
+          const sent = await bot.api.sendDocument(
+            row.chatId,
+            new InputFile(material.fileData, material.title),
+            { caption: row.text, parse_mode: 'HTML' },
+          );
+          await this.prisma.telegramNotification.update({
+            where: { id: row.id },
+            data: { telegramMessageId: sent.message_id },
+          });
+        }
+      } else if (row.telegramMessageId) {
         await bot.api.editMessageText(
           row.chatId,
           row.telegramMessageId,
@@ -331,14 +354,15 @@ export class TelegramService
           where: { id: row.id },
           data: { telegramMessageId: sent.message_id },
         });
-        await this.markEntitySent(row);
       }
+      await this.markEntitySent(row);
       await this.markSent(row);
     } catch (e) {
       if (
         e instanceof GrammyError &&
         e.description.includes('message is not modified')
       ) {
+        await this.markEntitySent(row);
         await this.markSent(row);
         return;
       }
@@ -372,6 +396,12 @@ export class TelegramService
     }
     if (type === NotificationType.RESCHEDULE_REQUEST) {
       await this.prisma.rescheduleRequest.updateMany({
+        where: { id: entityId },
+        data: { sentToTelegram: true },
+      });
+    }
+    if (type === NotificationType.MATERIAL_ADDED) {
+      await this.prisma.material.updateMany({
         where: { id: entityId },
         data: { sentToTelegram: true },
       });
