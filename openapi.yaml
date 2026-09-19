@@ -761,6 +761,48 @@ paths:
               schema:
                 $ref: '#/components/schemas/Material'
 
+  /lessons/{lessonId}/materials/upload:
+    post:
+      tags: [Materials]
+      summary: Upload a file to lesson materials
+      description: 'Roles: ADMIN, MANAGER, TEACHER (own lessons). Maximum file size: 10 MB.'
+      parameters:
+        - $ref: '#/components/parameters/LessonId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Material'
+
+  /lessons/{lessonId}/materials/{id}/file:
+    get:
+      tags: [Materials]
+      summary: Download an uploaded lesson material
+      parameters:
+        - $ref: '#/components/parameters/LessonId'
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: File content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
   # ── Reschedule Requests ─────────────────────────────────────────────────────
   /lessons/{lessonId}/reschedule-requests:
     post:

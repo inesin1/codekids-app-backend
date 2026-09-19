@@ -187,6 +187,7 @@ model Material {
   fileUrl  String
   fileType String? // "pdf", "zip", "link" и т.д.
   fileSize Int?    // размер в байтах
+  fileData Bytes?
 
   uploadedAt DateTime @default(now())
 

@@ -126,10 +126,13 @@ export class LessonsController {
         where: { parentId: user.id },
         select: { userId: true },
       });
-      return { studentUserIds: students.map((s) => s.userId) };
+      return {
+        studentUserIds: students.map((s) => s.userId),
+        hideInternalNotes: true,
+      };
     }
     if (user.roles.includes(Role.STUDENT)) {
-      return { studentUserIds: [user.id] };
+      return { studentUserIds: [user.id], hideInternalNotes: true };
     }
     throw new ForbiddenException();
   }
