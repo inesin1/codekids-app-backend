@@ -356,7 +356,9 @@ export class UsersService {
       ...(user.parentProfile && {
         parentProfile: {
           ...user.parentProfile,
-          students: user.parentProfile.students.map(UsersService.withAge),
+          students: user.parentProfile.students.map((student) =>
+            UsersService.withAge(student),
+          ),
         },
       }),
     });
