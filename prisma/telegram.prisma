@@ -30,6 +30,9 @@ enum NotificationType {
   STAFF_DIGEST
   LESSON_REMINDER_DAY // за сутки до занятия
   LESSON_REMINDER_SOON // за 15 минут
+  BIRTHDAY_REMINDER_WEEK // за неделю до дня рождения
+  BIRTHDAY_REMINDER_DAY // за сутки до дня рождения
+  BIRTHDAY_REMINDER_TODAY // в день рождения
 }
 
 // Outbox: строка — желаемое состояние сообщения в Telegram.

@@ -31,6 +31,8 @@ describe('TelegramNotifier.sendLessonReminders', () => {
   let notifier: TelegramNotifier;
   let prisma: {
     lesson: { findMany: jest.Mock };
+    studentProfile: { findMany: jest.Mock };
+    user: { findMany: jest.Mock };
     lessonReport: { findUniqueOrThrow: jest.Mock };
     material: { findMany: jest.Mock; findUniqueOrThrow: jest.Mock };
     telegramNotification: { findMany: jest.Mock };
@@ -46,6 +48,8 @@ describe('TelegramNotifier.sendLessonReminders', () => {
     jest.useFakeTimers().setSystemTime(now);
     prisma = {
       lesson: { findMany: jest.fn().mockResolvedValue([]) },
+      studentProfile: { findMany: jest.fn().mockResolvedValue([]) },
+      user: { findMany: jest.fn().mockResolvedValue([]) },
       lessonReport: { findUniqueOrThrow: jest.fn() },
       material: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -114,6 +118,51 @@ describe('TelegramNotifier.sendLessonReminders', () => {
     await notifier.sendLessonReminders();
 
     expect(prisma.lesson.findMany).not.toHaveBeenCalled();
+  });
+
+  it('должен отправлять напоминание о дне рождения всем подключённым сотрудникам', async () => {
+    prisma.studentProfile.findMany.mockResolvedValue([
+      {
+        userId: 's1',
+        birthDate: new Date('2015-09-25T00:00:00.000Z'),
+        user: { firstName: 'Иван', lastName: 'Петров' },
+      },
+    ]);
+    prisma.user.findMany.mockResolvedValue([
+      { telegramChatId: '10' },
+      { telegramChatId: '20' },
+    ]);
+
+    await notifier.sendBirthdayReminders();
+
+    expect(telegram.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: '10',
+        type: NotificationType.BIRTHDAY_REMINDER_WEEK,
+        entityId: 's1:2026',
+      }),
+    );
+    expect(telegram.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId: '20' }),
+    );
+  });
+
+  it('не должен повторно отправлять напоминание о дне рождения в том же году', async () => {
+    prisma.studentProfile.findMany.mockResolvedValue([
+      {
+        userId: 's1',
+        birthDate: new Date('2015-09-25T00:00:00.000Z'),
+        user: { firstName: 'Иван', lastName: 'Петров' },
+      },
+    ]);
+    prisma.user.findMany.mockResolvedValue([{ telegramChatId: '10' }]);
+    prisma.telegramNotification.findMany.mockResolvedValue([
+      { entityId: 's1:2026' },
+    ]);
+
+    await notifier.sendBirthdayReminders();
+
+    expect(telegram.enqueue).not.toHaveBeenCalled();
   });
 
   it('должен разделять пункты отчёта и не добавлять ссылку', async () => {
