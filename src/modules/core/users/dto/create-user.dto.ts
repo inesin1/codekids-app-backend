@@ -1,4 +1,10 @@
-import { IsEmail, IsString, MaxLength } from 'class-validator';
+import {
+  IsDateString,
+  IsEmail,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import { PersonFieldsDto } from './person-fields.dto';
 
 export class CreateUserDto extends PersonFieldsDto {
@@ -8,4 +14,8 @@ export class CreateUserDto extends PersonFieldsDto {
   @IsString()
   @MaxLength(128)
   password: string;
+
+  @IsOptional()
+  @IsDateString()
+  birthDate?: string;
 }

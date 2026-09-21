@@ -124,8 +124,11 @@ describe('TelegramNotifier.sendLessonReminders', () => {
     prisma.studentProfile.findMany.mockResolvedValue([
       {
         userId: 's1',
-        birthDate: new Date('2015-09-25T00:00:00.000Z'),
-        user: { firstName: 'Иван', lastName: 'Петров' },
+        user: {
+          firstName: 'Иван',
+          lastName: 'Петров',
+          birthDate: new Date('2015-09-25T00:00:00.000Z'),
+        },
       },
     ]);
     prisma.user.findMany.mockResolvedValue([
@@ -151,8 +154,11 @@ describe('TelegramNotifier.sendLessonReminders', () => {
     prisma.studentProfile.findMany.mockResolvedValue([
       {
         userId: 's1',
-        birthDate: new Date('2015-09-25T00:00:00.000Z'),
-        user: { firstName: 'Иван', lastName: 'Петров' },
+        user: {
+          firstName: 'Иван',
+          lastName: 'Петров',
+          birthDate: new Date('2015-09-25T00:00:00.000Z'),
+        },
       },
     ]);
     prisma.user.findMany.mockResolvedValue([{ telegramChatId: '10' }]);

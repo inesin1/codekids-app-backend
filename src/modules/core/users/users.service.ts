@@ -43,24 +43,28 @@ export class UsersService {
     return age;
   }
 
-  // Обогащаем студенческий профиль вычисленным возрастом.
-  /** Добавляет вычисленный возраст к студенческому профилю. */
-  private static withAge<T extends { birthDate: Date | null }>(profile: T) {
+  /** Добавляет возраст к студенческому профилю. */
+  private static withAge<T extends { user: { birthDate: Date | null } }>(
+    profile: T,
+  ) {
     return {
       ...profile,
-      age: profile.birthDate
-        ? UsersService.calculateAge(profile.birthDate)
+      age: profile.user.birthDate
+        ? UsersService.calculateAge(profile.user.birthDate)
         : null,
     };
   }
 
   private withStudentAge<
-    T extends { studentProfile: { birthDate: Date | null } | null },
+    T extends { birthDate: Date | null; studentProfile: object | null },
   >(user: T) {
     if (!user.studentProfile) return user;
     return {
       ...user,
-      studentProfile: UsersService.withAge(user.studentProfile),
+      studentProfile: {
+        ...user.studentProfile,
+        age: user.birthDate ? UsersService.calculateAge(user.birthDate) : null,
+      },
     };
   }
 
@@ -191,12 +195,12 @@ export class UsersService {
           password,
           studentProfile: {
             create: {
-              ...(birthDate && { birthDate: new Date(birthDate) }),
               ...(parentUserId && {
                 parent: { connect: { userId: parentUserId } },
               }),
             },
           },
+          ...(birthDate && { birthDate: new Date(birthDate) }),
         },
         include: { ...UsersService.profileExists, studentProfile: true },
       }),
@@ -336,6 +340,7 @@ export class UsersService {
                     firstName: true,
                     lastName: true,
                     email: true,
+                    birthDate: true,
                   },
                 },
               },
@@ -351,9 +356,7 @@ export class UsersService {
       ...(user.parentProfile && {
         parentProfile: {
           ...user.parentProfile,
-          students: user.parentProfile.students.map((s) =>
-            UsersService.withAge(s),
-          ),
+          students: user.parentProfile.students.map(UsersService.withAge),
         },
       }),
     });
@@ -369,7 +372,6 @@ export class UsersService {
 
   async update(id: string, dto: UpdateUserDto) {
     const { birthDate, roles, password, ...userData } = dto;
-
     // Выдача доступа в ЛК: пароль только парой с email (both-or-neither).
     // пароль только с email (both-or-neither — выдача доступа в ЛК)
     if (password != null && userData.email == null) {
@@ -389,9 +391,7 @@ export class UsersService {
             staffRoles: roles.filter((r) => UsersService.isStaffRole(r)),
           }),
           ...(birthDate !== undefined && {
-            studentProfile: {
-              update: { birthDate: birthDate ? new Date(birthDate) : null },
-            },
+            birthDate: birthDate ? new Date(birthDate) : null,
           }),
           // назначили роль TEACHER → гарантируем наличие профиля (additive)
           // назначили TEACHER → гарантируем наличие профиля (additive)
