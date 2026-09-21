@@ -450,11 +450,6 @@ export class LessonsService {
 
   async update(id: string, dto: UpdateLessonDto) {
     const lesson = await this.findById(id);
-    if (lesson.status !== LessonStatus.SCHEDULED) {
-      throw new BadRequestException(
-        `Cannot edit lesson with status ${lesson.status}`,
-      );
-    }
 
     const updated = await this.prisma.lesson.update({
       where: { id },
