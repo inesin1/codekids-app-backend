@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { DateTime } from 'luxon';
 import {
   LessonStatus,
   NotificationType,
   PayoutStatus,
+  Role,
   Prisma,
   RescheduleRequestStatus,
   RescheduleRequestType,
@@ -43,6 +45,26 @@ const LESSON_REMINDERS = [
     title: '⏰ <b>Занятие скоро начнётся</b>',
   },
 ];
+
+const BIRTHDAY_REMINDERS = [
+  {
+    type: NotificationType.BIRTHDAY_REMINDER_WEEK,
+    daysBefore: 7,
+    title: '🎂 <b>День рождения через неделю</b>',
+  },
+  {
+    type: NotificationType.BIRTHDAY_REMINDER_DAY,
+    daysBefore: 1,
+    title: '🎂 <b>День рождения завтра</b>',
+  },
+  {
+    type: NotificationType.BIRTHDAY_REMINDER_TODAY,
+    daysBefore: 0,
+    title: '🎉 <b>Сегодня день рождения</b>',
+  },
+] as const;
+
+const MOSCOW_TIME_ZONE = 'Europe/Moscow';
 
 type LessonHeader = {
   scheduledAt: Date;
@@ -333,6 +355,69 @@ export class TelegramNotifier {
             `👩‍🏫 ${fullName(lesson.teacher.user)}`,
           ].join('\n'),
         });
+      }
+    }
+  }
+
+  /** Отправляет сотрудникам напоминания о днях рождения учеников. */
+  @Cron('0 9 * * *', { timeZone: MOSCOW_TIME_ZONE })
+  async sendBirthdayReminders() {
+    if (!this.telegram.enabled) return;
+
+    const today = DateTime.now().setZone(MOSCOW_TIME_ZONE).startOf('day');
+    const students = await this.prisma.studentProfile.findMany({
+      where: { birthDate: { not: null }, user: { isActive: true } },
+      select: {
+        userId: true,
+        birthDate: true,
+        user: { select: { firstName: true, lastName: true } },
+      },
+    });
+    const staff = await this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        telegramChatId: { not: null },
+        staffRoles: { hasSome: [Role.ADMIN, Role.MANAGER] },
+      },
+      select: { telegramChatId: true },
+    });
+    if (!staff.length) return;
+
+    for (const reminder of BIRTHDAY_REMINDERS) {
+      const date = today.plus({ days: reminder.daysBefore });
+      const matchingStudents = students.filter(({ birthDate }) => {
+        const birthday = DateTime.fromJSDate(birthDate!, { zone: 'utc' });
+        return birthday.month === date.month && birthday.day === date.day;
+      });
+      if (!matchingStudents.length) continue;
+
+      const entityIds = matchingStudents.map(
+        ({ userId }) => `${userId}:${date.year}`,
+      );
+      const sent = await this.prisma.telegramNotification.findMany({
+        where: { type: reminder.type, entityId: { in: entityIds } },
+        select: { entityId: true },
+      });
+      const sentIds = new Set(sent.map(({ entityId }) => entityId));
+
+      for (const student of matchingStudents) {
+        const entityId = `${student.userId}:${date.year}`;
+        if (sentIds.has(entityId)) continue;
+
+        const text = [
+          reminder.title,
+          `👤 ${fullName(student.user)}`,
+          `📅 ${formatDate(student.birthDate!)}`,
+        ].join('\n');
+        for (const { telegramChatId } of staff) {
+          if (!telegramChatId) continue;
+          await this.telegram.enqueue({
+            chatId: telegramChatId,
+            type: reminder.type,
+            entityId,
+            text,
+          });
+        }
       }
     }
   }
