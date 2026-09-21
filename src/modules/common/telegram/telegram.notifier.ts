@@ -366,11 +366,10 @@ export class TelegramNotifier {
 
     const today = DateTime.now().setZone(MOSCOW_TIME_ZONE).startOf('day');
     const students = await this.prisma.studentProfile.findMany({
-      where: { birthDate: { not: null }, user: { isActive: true } },
+      where: { user: { isActive: true, birthDate: { not: null } } },
       select: {
         userId: true,
-        birthDate: true,
-        user: { select: { firstName: true, lastName: true } },
+        user: { select: { firstName: true, lastName: true, birthDate: true } },
       },
     });
     const staff = await this.prisma.user.findMany({
@@ -385,7 +384,8 @@ export class TelegramNotifier {
 
     for (const reminder of BIRTHDAY_REMINDERS) {
       const date = today.plus({ days: reminder.daysBefore });
-      const matchingStudents = students.filter(({ birthDate }) => {
+      const matchingStudents = students.filter(({ user }) => {
+        const { birthDate } = user;
         const birthday = DateTime.fromJSDate(birthDate!, { zone: 'utc' });
         return birthday.month === date.month && birthday.day === date.day;
       });
@@ -407,7 +407,7 @@ export class TelegramNotifier {
         const text = [
           reminder.title,
           `👤 ${fullName(student.user)}`,
-          `📅 ${formatDate(student.birthDate!)}`,
+          `📅 ${formatDate(student.user.birthDate!)}`,
         ].join('\n');
         for (const { telegramChatId } of staff) {
           if (!telegramChatId) continue;
