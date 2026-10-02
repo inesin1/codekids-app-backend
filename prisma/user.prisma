@@ -6,18 +6,19 @@ enum Role {
   ADMIN
   MANAGER
   TEACHER
-  PARENT
   STUDENT
 }
 
 model User {
   id        String   @id @default(cuid())
-  email     String?  @unique // null = lite-пользователь без доступа в ЛК
+  login      String?   @unique // null = пользователь без доступа в ЛК
+  email      String? // контактный email, может повторяться
   contacts  Json? // [{ id, label, value }] — кастомные контакты (телефон, мессенджеры и т.д.)
   password  String? // null = вход в ЛК недоступен
+  securityVersion Int @default(0)
   firstName String
   lastName  String
-  // только ADMIN/MANAGER. Участие TEACHER/PARENT/STUDENT определяется наличием профиля
+  // Только ADMIN/MANAGER. Участие TEACHER/STUDENT определяется наличием профиля
   staffRoles Role[]  @default([])
   isActive   Boolean @default(true)
   avatarUrl  String?
@@ -25,14 +26,14 @@ model User {
 
   // Личный чат с ботом (= Telegram user id). Ставит только бот: по нему опознаётся
   // нажавший inline-кнопку, ручной ввод позволил бы действовать от чужого имени
-  telegramChatId String? @unique
+  telegramChatId String?
+  telegramBindingVersion Int @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Ролевые профили — источник правды об участии в домене
   teacherProfile TeacherProfile?
-  parentProfile  ParentProfile?
   studentProfile StudentProfile?
 
   // Общие связи
@@ -42,6 +43,7 @@ model User {
   rescheduleRequestsCreated RescheduleRequest[] @relation("RescheduleCreatedBy")
   rescheduleRequestsResolved RescheduleRequest[] @relation("RescheduleResolvedBy")
 
+  @@index([telegramChatId])
   @@map("users")
 }
 
@@ -65,45 +67,26 @@ model TeacherProfile {
 }
 
 // ---------------------------------------------------------------------------
-// Профиль родителя
-// ---------------------------------------------------------------------------
-model ParentProfile {
-  userId String @id
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Баланс (в рублях, может быть отрицательным = задолженность)
-  balance Decimal @default(0) @db.Decimal(12, 2)
-
-  // 1 родитель → N учеников
-  students     StudentProfile[]
-  payments     Payment[]
-  transactions Transaction[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("parent_profiles")
-}
-
-// ---------------------------------------------------------------------------
 // Профиль ученика
 // ---------------------------------------------------------------------------
 model StudentProfile {
   userId String @id
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  parentId String? // userId родителя; null для пробных учеников без оформленного родителя
-  parent   ParentProfile? @relation(fields: [parentId], references: [userId])
+  parentName     String?
+  parentContacts Json? // [{ id, label, value }]
+  balance        Decimal @default(0) @db.Decimal(12, 2)
 
   enrollments       Enrollment[]
   scheduleTemplates ScheduleTemplate[]
   lessons           Lesson[]
+  payments          Payment[]
+  transactions      Transaction[]
   telegramGroup     TelegramGroup?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([parentId])
   @@map("student_profiles")
 }
 
@@ -153,6 +136,7 @@ model Enrollment {
   lessons           Lesson[]
 
   @@unique([teacherId, studentId, courseId])
+  @@unique([id, teacherId, studentId], map: "enrollments_id_teacherId_studentId_key")
   @@index([teacherId])
   @@index([studentId])
   @@index([courseId])

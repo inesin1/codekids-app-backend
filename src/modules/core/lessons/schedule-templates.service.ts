@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { DayOfWeek, Prisma } from '../../../generated/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -8,7 +12,7 @@ import { UpdateScheduleTemplateDto } from './dto/update-schedule-template.dto';
 const scheduleTemplateInclude: Prisma.ScheduleTemplateInclude = {
   slots: { orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }] },
   teacher: { include: { user: true } },
-  student: { include: { user: true } },
+  student: { select: { userId: true, user: true } },
 };
 
 @Injectable()
@@ -19,33 +23,59 @@ export class ScheduleTemplatesService {
   ) {}
 
   async create(dto: CreateScheduleTemplateDto) {
-    const template = await this.prisma.scheduleTemplate.create({
-      data: {
-        enrollmentId: dto.enrollmentId,
-        teacherId: dto.teacherId,
-        studentId: dto.studentId,
-        timezone: dto.timezone,
-        slots: {
-          create: dto.slots.map((slot) => ({
-            dayOfWeek: slot.dayOfWeek,
-            startTime: slot.startTime,
-            durationMinutes: slot.durationMinutes,
-          })),
+    return this.prisma.$transaction(async (tx) => {
+      const activeEnrollments = await tx.$queryRaw<Array<{ id: string }>>(
+        Prisma.sql`SELECT "id" FROM "enrollments" WHERE "id" = ${dto.enrollmentId} AND "isActive" = true FOR SHARE`,
+      );
+      if (!activeEnrollments.length) {
+        throw new BadRequestException(
+          'enrollmentId must reference an active enrollment',
+        );
+      }
+      const enrollment = await tx.enrollment.findUniqueOrThrow({
+        where: { id: dto.enrollmentId },
+        select: { id: true, teacherId: true, studentId: true },
+      });
+      if (
+        (dto.teacherId !== undefined &&
+          dto.teacherId !== enrollment.teacherId) ||
+        (dto.studentId !== undefined && dto.studentId !== enrollment.studentId)
+      ) {
+        throw new BadRequestException(
+          'teacherId and studentId must match the enrollment',
+        );
+      }
+      const template = await tx.scheduleTemplate.create({
+        data: {
+          enrollmentId: enrollment.id,
+          teacherId: enrollment.teacherId,
+          studentId: enrollment.studentId,
+          timezone: dto.timezone,
+          slots: {
+            create: dto.slots.map((slot) => ({
+              dayOfWeek: slot.dayOfWeek,
+              startTime: slot.startTime,
+              durationMinutes: slot.durationMinutes,
+            })),
+          },
         },
-      },
-      include: scheduleTemplateInclude,
+        include: scheduleTemplateInclude,
+      });
+      await this.audit.record(
+        {
+          action: 'schedule_template.created',
+          entityType: 'ScheduleTemplate',
+          entityId: template.id,
+          details: {
+            teacherId: enrollment.teacherId,
+            studentId: enrollment.studentId,
+            enrollmentId: enrollment.id,
+          },
+        },
+        tx,
+      );
+      return template;
     });
-    this.audit.log({
-      action: 'schedule_template.created',
-      entityType: 'ScheduleTemplate',
-      entityId: template.id,
-      details: {
-        teacherId: dto.teacherId,
-        studentId: dto.studentId,
-        enrollmentId: dto.enrollmentId,
-      },
-    });
-    return template;
   }
 
   findAll(filters: {
@@ -81,7 +111,7 @@ export class ScheduleTemplatesService {
   async update(id: string, dto: UpdateScheduleTemplateDto) {
     await this.findById(id);
 
-    const template = await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       if (dto.isActive !== undefined || dto.timezone) {
         await tx.scheduleTemplate.update({
           where: { id },
@@ -104,39 +134,45 @@ export class ScheduleTemplatesService {
         });
       }
 
-      return tx.scheduleTemplate.findUniqueOrThrow({
+      const template = await tx.scheduleTemplate.findUniqueOrThrow({
         where: { id },
         include: scheduleTemplateInclude,
       });
+      await this.audit.record(
+        {
+          action: 'schedule_template.updated',
+          entityType: 'ScheduleTemplate',
+          entityId: id,
+          details: { ...dto },
+        },
+        tx,
+      );
+      return template;
     });
-    this.audit.log({
-      action: 'schedule_template.updated',
-      entityType: 'ScheduleTemplate',
-      entityId: id,
-      details: { ...dto },
-    });
-    return template;
   }
 
   async deactivate(id: string) {
     await this.findById(id);
-    const template = await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       await tx.scheduleTemplateSlot.updateMany({
         where: { templateId: id },
         data: { isActive: false },
       });
 
-      return tx.scheduleTemplate.update({
+      const template = await tx.scheduleTemplate.update({
         where: { id },
         data: { isActive: false },
         include: scheduleTemplateInclude,
       });
+      await this.audit.record(
+        {
+          action: 'schedule_template.deactivated',
+          entityType: 'ScheduleTemplate',
+          entityId: id,
+        },
+        tx,
+      );
+      return template;
     });
-    this.audit.log({
-      action: 'schedule_template.deactivated',
-      entityType: 'ScheduleTemplate',
-      entityId: id,
-    });
-    return template;
   }
 }

@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Get,
   Param,
+  ParseEnumPipe,
   Patch,
   Post,
   Query,
@@ -14,7 +15,6 @@ import { Role } from '../../../generated/client';
 import { Roles } from '../../common/auth/decorators/roles.decorator';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
-import { CreateLiteUserDto } from './dto/create-lite-user.dto';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -34,12 +34,6 @@ export class UsersController {
   }
 
   @Roles(Role.ADMIN, Role.MANAGER)
-  @Post('parents')
-  createParent(@Body() dto: CreateLiteUserDto) {
-    return this.usersService.createParent(dto);
-  }
-
-  @Roles(Role.ADMIN, Role.MANAGER)
   @Post('students')
   createStudent(@Body() dto: CreateStudentDto) {
     return this.usersService.createStudent(dto);
@@ -53,7 +47,9 @@ export class UsersController {
 
   @Roles(Role.ADMIN, Role.MANAGER)
   @Get()
-  findAll(@Query('role') role?: Role) {
+  findAll(
+    @Query('role', new ParseEnumPipe(Role, { optional: true })) role?: Role,
+  ) {
     return this.usersService.findAll(role);
   }
 
@@ -70,13 +66,7 @@ export class UsersController {
     if (!isStaff && roles.includes(Role.TEACHER)) {
       query.teacherId = userId;
     }
-    return this.usersService.findAllStudents(query);
-  }
-
-  @Roles(Role.ADMIN, Role.MANAGER)
-  @Get('parents')
-  findAllParents(@Query() query: ListUsersQueryDto) {
-    return this.usersService.findAllParents(query);
+    return this.usersService.findAllStudents(query, !isStaff);
   }
 
   @Roles(Role.ADMIN, Role.MANAGER)

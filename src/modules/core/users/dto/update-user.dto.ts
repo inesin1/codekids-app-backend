@@ -1,36 +1,62 @@
 import { PartialType, OmitType } from '@nestjs/mapped-types';
 import {
-  ArrayNotEmpty,
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
   IsBoolean,
   IsDateString,
   IsIn,
+  IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
+  MinLength,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { Role } from '../../../../generated/client';
 import { CreateUserDto } from './create-user.dto';
+import { ContactDto } from './contact.dto';
 
 export class UpdateUserDto extends PartialType(
-  OmitType(CreateUserDto, ['password']),
+  OmitType(CreateUserDto, ['password', 'login']),
 ) {
   @IsOptional()
+  @IsString()
+  @MaxLength(254)
+  login?: string | null;
+
+  @ValidateIf((o: UpdateUserDto) => o.isActive !== undefined)
   @IsBoolean()
   isActive?: boolean;
 
-  @IsOptional()
-  @ArrayNotEmpty()
-  @IsIn(Object.values(Role), { each: true })
+  @ValidateIf((o: UpdateUserDto) => o.roles !== undefined)
+  @IsArray()
+  @ArrayMaxSize(3)
+  @ArrayUnique()
+  @IsIn([Role.ADMIN, Role.MANAGER, Role.TEACHER], { each: true })
   roles?: Role[];
 
   @IsOptional()
   @IsDateString()
   birthDate?: string;
 
-  // пароль задается только в паре с email (выдача доступа в ЛК)
-  @ValidateIf((o: UpdateUserDto) => o.password != null)
+  @IsOptional()
   @IsString()
+  @IsNotEmpty()
   @MaxLength(128)
-  password?: string;
+  @MinLength(8)
+  password?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(201)
+  parentName?: string;
+
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => ContactDto)
+  @ArrayMaxSize(30)
+  parentContacts?: ContactDto[];
 }

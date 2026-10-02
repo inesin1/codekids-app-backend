@@ -5,6 +5,14 @@ import { Prisma } from '../../../generated/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { FindAuditLogsDto } from './dto/find-audit-logs.dto';
 
+type AuditEntry = {
+  action: string;
+  entityType: string;
+  entityId?: string;
+  details?: object;
+  actorId?: string;
+};
+
 @Injectable()
 export class AuditService {
   private readonly logger = new Logger(AuditService.name);
@@ -14,17 +22,11 @@ export class AuditService {
     private readonly cls: ClsService,
   ) {}
 
-  /** Записывает событие аудита (fire-and-forget). Актор определяется из CLS или передается явно. */
-  log({
-    actorId,
-    ...entry
-  }: {
-    action: string;
-    entityType: string;
-    entityId?: string;
-    details?: object;
-    actorId?: string;
-  }): void {
+  /** Сохраняет обязательное событие аудита в переданной транзакции. */
+  async record(
+    { actorId, ...entry }: AuditEntry,
+    db: Prisma.TransactionClient,
+  ): Promise<void> {
     const req = this.cls.isActive()
       ? this.cls.get<Request | undefined>(CLS_REQ)
       : undefined;
@@ -35,19 +37,22 @@ export class AuditService {
         ? undefined
         : (JSON.parse(JSON.stringify(entry.details)) as Prisma.InputJsonValue);
 
-    void this.prisma.auditLog
-      .create({
-        data: {
-          ...entry,
-          details,
-          userId: actorId ?? req?.user?.id ?? null,
-          ipAddress: req?.ip,
-          userAgent: req?.headers['user-agent'],
-        },
-      })
-      .catch((e) =>
-        this.logger.error(`Failed to write audit log ${entry.action}`, e),
-      );
+    await db.auditLog.create({
+      data: {
+        ...entry,
+        details,
+        userId: actorId ?? req?.user?.id ?? null,
+        ipAddress: req?.ip,
+        userAgent: req?.headers['user-agent'],
+      },
+    });
+  }
+
+  /** Записывает необязательное событие аудита без ожидания результата. */
+  log(entry: AuditEntry): void {
+    void this.record(entry, this.prisma).catch((e) =>
+      this.logger.error(`Failed to write audit log ${entry.action}`, e),
+    );
   }
 
   /** Возвращает записи журнала аудита по заданным фильтрам. */

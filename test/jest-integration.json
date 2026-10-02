@@ -1,0 +1,13 @@
+{
+  "rootDir": "..",
+  "testMatch": ["<rootDir>/test/integration/**/*.integration.spec.ts"],
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "moduleNameMapper": {
+    "^(\\.{1,2}/.*)\\.js$": "$1"
+  },
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "testEnvironment": "node",
+  "setupFiles": ["<rootDir>/test/assert-integration-database.cjs"]
+}

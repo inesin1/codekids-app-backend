@@ -5,10 +5,11 @@ import {
   NotificationType,
   RescheduleRequestStatus,
   Role,
+  TelegramRecipientKind,
 } from '../../../generated/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { formatDateTime, fullName, money } from './telegram.format';
-import { MAX_ATTEMPTS, TelegramService } from './telegram.service';
+import { TelegramService } from './telegram.service';
 
 const HOUR_MS = 60 * 60 * 1000;
 const LIST_LIMIT = 5;
@@ -31,8 +32,6 @@ export class TelegramDigestService {
   /** Отправляет ежедневный дайджест в личные чаты сотрудников (10:00 МСК). */
   @Cron('0 10 * * *', { timeZone: 'Europe/Moscow' })
   async sendDaily() {
-    if (!this.telegram.enabled) return;
-
     const text = await this.buildText(new Date());
     if (!text) return;
 
@@ -42,13 +41,15 @@ export class TelegramDigestService {
         telegramChatId: { not: null },
         staffRoles: { hasSome: [Role.ADMIN, Role.MANAGER] },
       },
-      select: { telegramChatId: true },
+      select: { id: true },
     });
-    for (const { telegramChatId } of staff) {
-      if (!telegramChatId) continue;
+    const occurrenceKey = new Date().toISOString().slice(0, 10);
+    for (const { id } of staff) {
       await this.telegram.enqueue({
-        chatId: telegramChatId,
+        recipient: { kind: TelegramRecipientKind.USER, id },
+        occurrenceKey,
         type: NotificationType.STAFF_DIGEST,
+        entityId: occurrenceKey,
         text,
       });
     }
@@ -91,7 +92,7 @@ export class TelegramDigestService {
         include: { lesson: { include: lessonNames } },
         orderBy: { createdAt: 'asc' },
       }),
-      this.prisma.parentProfile.findMany({
+      this.prisma.studentProfile.findMany({
         where: { balance: { lt: 0 } },
         include: { user: true },
         orderBy: { balance: 'asc' },
@@ -108,8 +109,7 @@ export class TelegramDigestService {
       }),
       this.prisma.telegramNotification.count({
         where: {
-          sentAt: null,
-          attempts: { gte: MAX_ATTEMPTS },
+          failedAt: { not: null },
           updatedAt: { gte: ago(24) },
         },
       }),
@@ -129,7 +129,7 @@ export class TelegramDigestService {
         staleRequests.map((r) => lessonLine(r.lesson)),
       ),
       this.section(
-        '💸 Родители с задолженностью',
+        '💸 Ученики с задолженностью',
         debtors.map((p) => `• ${fullName(p.user)}: ${money(p.balance)}`),
       ),
       studentsWithoutGroup

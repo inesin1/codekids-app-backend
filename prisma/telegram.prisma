@@ -10,7 +10,8 @@ model TelegramGroup {
   studentId String         @unique // userId ученика
   student   StudentProfile @relation(fields: [studentId], references: [userId], onDelete: Cascade)
 
-  telegramChatId String @unique // ID чата/группы в Telegram
+  telegramChatId String? @unique // null retains the binding tombstone after unlink
+  bindingVersion Int @default(0)
 
   isActive Boolean @default(true) // false — бота удалили из группы
 
@@ -35,6 +36,11 @@ enum NotificationType {
   BIRTHDAY_REMINDER_TODAY // в день рождения
 }
 
+enum TelegramRecipientKind {
+  USER
+  GROUP
+}
+
 // Outbox: строка — желаемое состояние сообщения в Telegram.
 // sentAt = null → воркер отправит (или отредактирует, если telegramMessageId уже есть)
 model TelegramNotification {
@@ -44,6 +50,20 @@ model TelegramNotification {
   type   NotificationType
 
   entityId String? // reportId / requestId / lessonId / payoutId
+  eventKey String @unique
+  occurrenceKey String
+  recipientKind TelegramRecipientKind?
+  recipientId String?
+  bindingVersion Int @default(0)
+  payloadHash String
+  desiredVersion Int @default(1)
+  deliveredVersion Int @default(0)
+  leaseToken String?
+  leaseVersion Int?
+  leaseExpiresAt DateTime?
+  nextAttemptAt DateTime @default(now())
+  failedAt DateTime?
+  canceledAt DateTime?
 
   text        String @db.Text // HTML
   replyMarkup Json? // inline-кнопки
@@ -58,6 +78,8 @@ model TelegramNotification {
 
   @@index([sentAt])
   @@index([type, entityId])
+  @@index([nextAttemptAt, leaseExpiresAt])
+  @@index([recipientKind, recipientId, bindingVersion], map: "telegram_notifications_recipient_binding_idx")
   @@map("telegram_notifications")
 }
 
@@ -76,7 +98,23 @@ model TelegramLinkToken {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   expiresAt DateTime
+  bindingVersion Int @default(0)
 
   @@index([userId])
   @@map("telegram_link_tokens")
+}
+
+model TelegramUpdateInbox {
+  updateId BigInt @id
+  payload Json
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  leaseToken String?
+  leaseExpiresAt DateTime?
+  processedAt DateTime?
+  failedAt DateTime?
+  error String?
+  createdAt DateTime @default(now())
+  @@index([processedAt, failedAt, nextAttemptAt, leaseExpiresAt], map: "telegram_update_inbox_ready_idx")
+  @@map("telegram_update_inbox")
 }

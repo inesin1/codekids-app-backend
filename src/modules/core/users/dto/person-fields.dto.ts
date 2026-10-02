@@ -1,5 +1,6 @@
 import {
   ArrayMaxSize,
+  IsEmail,
   IsOptional,
   IsString,
   MaxLength,
@@ -16,6 +17,10 @@ export class PersonFieldsDto {
   @IsString()
   @MaxLength(100)
   lastName: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
 
   @IsOptional()
   @IsString()

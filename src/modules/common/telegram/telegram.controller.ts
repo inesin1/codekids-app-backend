@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   ForbiddenException,
+  Get,
   Headers,
   Param,
   Post,
@@ -31,7 +32,13 @@ export class TelegramController {
     if (!this.telegram.isValidWebhookSecret(secret)) {
       throw new UnauthorizedException();
     }
-    await this.telegram.handleUpdate(update);
+    await this.telegram.acceptWebhookUpdate(update);
+  }
+
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @Get('queue-health')
+  queueHealth() {
+    return this.telegram.queueHealth();
   }
 
   @Roles(Role.ADMIN, Role.MANAGER)

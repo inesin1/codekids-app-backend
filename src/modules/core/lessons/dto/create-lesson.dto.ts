@@ -11,11 +11,13 @@ export class CreateLessonDto {
   @IsString()
   enrollmentId: string;
 
+  @IsOptional()
   @IsString()
-  teacherId: string;
+  teacherId?: string;
 
+  @IsOptional()
   @IsString()
-  studentId: string;
+  studentId?: string;
 
   @IsDateString()
   scheduledAt: string;

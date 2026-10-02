@@ -3,14 +3,14 @@
 // ============================================================================
 
 // ---------------------------------------------------------------------------
-// Оплата от родителя (ручное пополнение администратором)
+// Оплата ученика (ручное пополнение администратором)
 // ---------------------------------------------------------------------------
 
 model Payment {
   id String @id @default(cuid())
 
-  parentId String // userId родителя
-  parent   ParentProfile @relation(fields: [parentId], references: [userId])
+  studentId String
+  student   StudentProfile @relation(fields: [studentId], references: [userId])
 
   amount      Decimal @db.Decimal(12, 2) // сумма пополнения
   description String? // комментарий
@@ -18,13 +18,13 @@ model Payment {
 
   createdAt DateTime @default(now())
 
-  @@index([parentId])
+  @@index([studentId])
   @@index([paidAt])
   @@map("payments")
 }
 
 // ---------------------------------------------------------------------------
-// Транзакция — автоматическое списание с родителя при проведении занятия
+// Транзакция — автоматическое списание с баланса ученика при проведении занятия
 // ---------------------------------------------------------------------------
 
 enum TransactionType {
@@ -36,8 +36,8 @@ enum TransactionType {
 model Transaction {
   id String @id @default(cuid())
 
-  parentId String // userId родителя
-  parent   ParentProfile @relation(fields: [parentId], references: [userId])
+  studentId String
+  student   StudentProfile @relation(fields: [studentId], references: [userId])
 
   lessonId String? @unique
   lesson   Lesson? @relation(fields: [lessonId], references: [id])
@@ -52,7 +52,7 @@ model Transaction {
 
   createdAt DateTime @default(now())
 
-  @@index([parentId])
+  @@index([studentId])
   @@index([createdAt])
   @@map("transactions")
 }

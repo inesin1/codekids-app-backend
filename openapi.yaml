@@ -139,48 +139,6 @@ paths:
                 items:
                   $ref: '#/components/schemas/TeacherListItem'
 
-  /users/parents:
-    post:
-      tags: [Users]
-      summary: Create parent
-      description: 'Roles: ADMIN, MANAGER'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateUserDto'
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/User'
-    get:
-      tags: [Users]
-      summary: List parents
-      description: 'Roles: ADMIN, MANAGER'
-      parameters:
-        - name: q
-          in: query
-          description: Поиск по firstName/lastName/email (case-insensitive)
-          schema:
-            type: string
-        - name: isActive
-          in: query
-          schema:
-            type: boolean
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ParentListItem'
-
   /users/students:
     post:
       tags: [Users]
@@ -255,7 +213,7 @@ paths:
       summary: List users (raw, без профилей)
       description: |
         Базовый админский список. Для доменных таблиц используй
-        `/users/students`, `/users/parents`, `/users/teachers`.
+        `/users/students`, `/users/teachers`.
       parameters:
         - name: role
           in: query
@@ -443,7 +401,6 @@ paths:
       description: |
         ADMIN/MANAGER — all lessons.
         TEACHER — own lessons.
-        PARENT — children's lessons.
         STUDENT — own lessons.
       parameters:
         - name: from
@@ -499,7 +456,7 @@ paths:
       description: |
         Roles: ADMIN, MANAGER, TEACHER.
         Teacher can only complete own lessons.
-        Charges parent balance and records financial transaction.
+        Charges the student's balance and records a financial transaction.
       parameters:
         - $ref: '#/components/parameters/Id'
       responses:
@@ -807,7 +764,7 @@ paths:
     post:
       tags: [Reschedule Requests]
       summary: Create reschedule/cancel request
-      description: 'Roles: TEACHER, PARENT'
+      description: 'Roles: TEACHER, STUDENT'
       parameters:
         - $ref: '#/components/parameters/LessonId'
       requestBody:
@@ -1052,7 +1009,7 @@ paths:
     post:
       tags: [Telegram]
       summary: Telegram Bot API webhook
-      description: Public. Requires X-Telegram-Bot-Api-Secret-Token header equal to TELEGRAM_WEBHOOK_SECRET
+      description: Public. Requires X-Telegram-Bot-Api-Secret-Token equal to TELEGRAM_WEBHOOK_SECRET. Persists update_id before acknowledging; background inbox processing is retryable.
       security: []
       requestBody:
         required: true
@@ -1063,9 +1020,37 @@ paths:
               description: Telegram Update object
       responses:
         '201':
-          description: Update processed
+          description: Update durably accepted, including duplicate update_id
+        '400':
+          description: Invalid update_id
         '401':
           description: Invalid secret token
+        '500':
+          description: Persistence failed; Telegram should retry
+
+  /telegram/queue-health:
+    get:
+      tags: [Telegram]
+      summary: Aggregated durable queue health
+      description: ADMIN/MANAGER only. No message payloads or recipient details.
+      responses:
+        '200':
+          description: Queue counts and oldest pending timestamp
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pending: { type: integer }
+                  failed: { type: integer }
+                  leased: { type: integer }
+                  expiredLease: { type: integer }
+                  oldestPendingAt: { type: string, format: date-time, nullable: true }
+                  pendingInbox: { type: integer }
+                  failedInbox: { type: integer }
+                  leasedInbox: { type: integer }
+        '403':
+          description: Staff access required
 
 # ── Components ────────────────────────────────────────────────────────────────
 components:
@@ -1105,7 +1090,7 @@ components:
     # ── Enums ─────────────────────────────────────────────────────────────────
     Role:
       type: string
-      enum: [ADMIN, MANAGER, TEACHER, PARENT, STUDENT]
+      enum: [ADMIN, MANAGER, TEACHER, STUDENT]
 
     LessonStatus:
       type: string
@@ -1134,13 +1119,15 @@ components:
     # ── Auth DTOs ─────────────────────────────────────────────────────────────
     LoginDto:
       type: object
-      required: [email, password]
+      required: [login, password]
       properties:
-        email:
+        login:
           type: string
-          format: email
+          maxLength: 254
         password:
           type: string
+          minLength: 8
+          maxLength: 128
 
     RefreshDto:
       type: object
@@ -1162,13 +1149,18 @@ components:
     # ── User DTOs ─────────────────────────────────────────────────────────────
     CreateUserDto:
       type: object
-      required: [email, password, firstName, lastName]
+      required: [login, password, firstName, lastName]
       properties:
+        login:
+          type: string
+          maxLength: 254
         email:
           type: string
           format: email
+          description: Contact email; it is not used for login and may be shared.
         password:
           type: string
+          minLength: 8
           maxLength: 128
         firstName:
           type: string
@@ -1176,81 +1168,158 @@ components:
         lastName:
           type: string
           maxLength: 100
-        phone:
+        birthDate:
           type: string
-          maxLength: 20
+          format: date-time
+        contacts:
+          type: array
+          maxItems: 30
+          items:
+            $ref: '#/components/schemas/ContactDto'
         avatarUrl:
           type: string
 
     CreateStudentDto:
-      allOf:
-        - $ref: '#/components/schemas/CreateUserDto'
-        - type: object
-          required: [parentUserId]
-          properties:
-            parentUserId:
-              type: string
-            age:
-              type: integer
-              minimum: 1
-            grade:
-              type: string
-              maxLength: 50
+      type: object
+      required: [firstName, lastName]
+      description: login and password are optional, but must be supplied together.
+      properties:
+        login:
+          type: string
+          maxLength: 254
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+        email:
+          type: string
+          format: email
+          description: Contact email; it is not used for login and may be shared.
+        firstName:
+          type: string
+          maxLength: 100
+        lastName:
+          type: string
+          maxLength: 100
+        contacts:
+          type: array
+          maxItems: 30
+          items:
+            $ref: '#/components/schemas/ContactDto'
+        avatarUrl:
+          type: string
+        parentName:
+          type: string
+          maxLength: 201
+        parentContacts:
+          type: array
+          maxItems: 30
+          items:
+            $ref: '#/components/schemas/ContactDto'
+        birthDate:
+          type: string
+          format: date-time
 
     CreateStaffDto:
       allOf:
         - $ref: '#/components/schemas/CreateUserDto'
         - type: object
-          required: [role]
+          required: [roles]
           properties:
-            role:
-              type: string
-              enum: [ADMIN, MANAGER]
+            roles:
+              type: array
+              minItems: 1
+              maxItems: 3
+              uniqueItems: true
+              items:
+                type: string
+                enum: [ADMIN, MANAGER, TEACHER]
 
     UpdateUserDto:
       type: object
       properties:
+        login:
+          type: string
+          nullable: true
+          maxLength: 254
+          description: Supply together with password; null together clears portal access.
+        password:
+          type: string
+          nullable: true
+          minLength: 8
+          maxLength: 128
         email:
           type: string
           format: email
+          nullable: true
+        birthDate:
+          type: string
+          format: date-time
+          nullable: true
+        isActive:
+          type: boolean
         firstName:
           type: string
           maxLength: 100
         lastName:
           type: string
           maxLength: 100
-        phone:
-          type: string
-          maxLength: 20
         avatarUrl:
           type: string
+        roles:
+          type: array
+          maxItems: 3
+          uniqueItems: true
+          items:
+            type: string
+            enum: [ADMIN, MANAGER, TEACHER]
+          description: An empty array clears staff roles; TEACHER is additive.
+        parentName:
+          type: string
+          maxLength: 201
+        parentContacts:
+          type: array
+          maxItems: 30
+          items:
+            $ref: '#/components/schemas/ContactDto'
 
     User:
       type: object
       description: |
-        Password всегда исключён (глобальный Prisma omit).
-        teacherProfile / parentProfile / studentProfile включаются только
-        на эндпоинтах, которые делают явный include (POST /users/{teachers,parents,students}, GET /users/{id}).
+        Password and securityVersion are never included in ordinary user responses.
+        Profile relations are included only when an endpoint explicitly loads them.
       properties:
         id:
           type: string
+        login:
+          type: string
+          nullable: true
         email:
           type: string
+          nullable: true
         firstName:
           type: string
         lastName:
           type: string
-        phone:
+        birthDate:
           type: string
+          format: date-time
           nullable: true
+        contacts:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/ContactDto'
         avatarUrl:
           type: string
           nullable: true
         telegramChatId:
           type: string
           nullable: true
-        role:
-          $ref: '#/components/schemas/Role'
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
         isActive:
           type: boolean
         createdAt:
@@ -1263,10 +1332,6 @@ components:
           nullable: true
           allOf:
             - $ref: '#/components/schemas/TeacherProfile'
-        parentProfile:
-          nullable: true
-          allOf:
-            - $ref: '#/components/schemas/ParentProfile'
         studentProfile:
           nullable: true
           allOf:
@@ -1286,37 +1351,23 @@ components:
           type: string
           format: date-time
 
-    ParentProfile:
-      type: object
-      properties:
-        id:
-          type: string
-        userId:
-          type: string
-        balance:
-          type: string
-          description: Decimal(12,2) — баланс родителя в рублях (может быть отрицательным)
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-
     StudentProfile:
       type: object
       properties:
-        id:
-          type: string
         userId:
           type: string
-        parentId:
+        parentName:
           type: string
+          nullable: true
+        parentContacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContactDto'
+        balance:
+          type: string
+          description: Decimal(12,2) student balance; may be negative. Omitted from teacher student lists.
         age:
           type: integer
-          nullable: true
-        grade:
-          type: string
           nullable: true
         createdAt:
           type: string
@@ -1334,52 +1385,9 @@ components:
             studentProfile:
               type: object
               description: |
-                Расширенный StudentProfile с родителем — для таблицы учеников.
-              properties:
-                id:
-                  type: string
-                userId:
-                  type: string
-                parentId:
-                  type: string
-                age:
-                  type: integer
-                  nullable: true
-                grade:
-                  type: string
-                  nullable: true
-                createdAt:
-                  type: string
-                  format: date-time
-                updatedAt:
-                  type: string
-                  format: date-time
-                parent:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                    userId:
-                      type: string
-                    user:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        firstName:
-                          type: string
-                        lastName:
-                          type: string
-                        email:
-                          type: string
-
-    ParentListItem:
-      allOf:
-        - $ref: '#/components/schemas/User'
-        - type: object
-          properties:
-            parentProfile:
-              $ref: '#/components/schemas/ParentProfile'
+                StudentProfile including parent contacts for student tables.
+              allOf:
+                - $ref: '#/components/schemas/StudentProfile'
 
     TeacherListItem:
       allOf:
@@ -1388,6 +1396,19 @@ components:
           properties:
             teacherProfile:
               $ref: '#/components/schemas/TeacherProfile'
+
+    ContactDto:
+      type: object
+      required: [label, value]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+          maxLength: 50
+        value:
+          type: string
+          maxLength: 500
 
     # ── Enrollment DTOs ───────────────────────────────────────────────────────
     CreateEnrollmentDto:
@@ -1452,7 +1473,8 @@ components:
     # ── Lesson DTOs ───────────────────────────────────────────────────────────
     CreateLessonDto:
       type: object
-      required: [enrollmentId, teacherId, studentId, scheduledAt]
+      required: [enrollmentId, scheduledAt]
+      description: Teacher and student IDs are derived from Enrollment; supplied IDs must match it.
       properties:
         enrollmentId:
           type: string
@@ -1552,7 +1574,8 @@ components:
 
     CreateScheduleTemplateDto:
       type: object
-      required: [enrollmentId, teacherId, studentId, slots]
+      required: [enrollmentId, slots]
+      description: Teacher and student IDs are derived from Enrollment; supplied IDs must match it.
       properties:
         enrollmentId:
           type: string

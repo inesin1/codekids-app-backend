@@ -20,7 +20,7 @@ model ScheduleTemplate {
   id String @id @default(cuid())
 
   enrollmentId String
-  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id])
+  enrollment Enrollment @relation(fields: [enrollmentId, teacherId, studentId], references: [id, teacherId, studentId], onDelete: Restrict, onUpdate: Restrict)
 
   teacherId String // userId преподавателя
   teacher   TeacherProfile @relation(fields: [teacherId], references: [userId])
@@ -101,7 +101,7 @@ model Lesson {
   template   ScheduleTemplate? @relation(fields: [templateId], references: [id])
 
   enrollmentId String
-  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id])
+  enrollment Enrollment @relation(fields: [enrollmentId, teacherId, studentId], references: [id, teacherId, studentId], onDelete: Restrict, onUpdate: Restrict)
 
   teacherId String // userId преподавателя
   teacher   TeacherProfile @relation(fields: [teacherId], references: [userId])
@@ -115,8 +115,8 @@ model Lesson {
 
   status LessonStatus @default(SCHEDULED)
 
-  // Фиксируем цену и ставку на момент проведения
-  price       Decimal? @db.Decimal(10, 2) // списано с родителя
+  // Snapshot fields are set when the lesson is completed.
+  price       Decimal? @db.Decimal(10, 2)
   teacherRate Decimal? @db.Decimal(10, 2) // начислено преподавателю
 
   completedAt DateTime? // когда преподаватель отметил «проведено»
@@ -134,12 +134,12 @@ model Lesson {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([templateId, scheduledAt])
   @@index([teacherId])
   @@index([studentId])
   @@index([scheduledAt])
   @@index([status])
   @@index([enrollmentId])
-  @@unique([templateId, scheduledAt])
   @@map("lessons")
 }
 

@@ -34,21 +34,28 @@ async function main() {
     where: { staffRoles: { has: Role.ADMIN } },
   });
   if (existing) {
-    console.log(`Admin already exists: ${existing.email}`);
+    console.log('Admin already exists');
     return;
+  }
+
+  const login = process.env['SEED_ADMIN_LOGIN']?.trim();
+  const password = process.env['SEED_ADMIN_PASSWORD'];
+  if (!login || !password) {
+    throw new Error('SEED_ADMIN_LOGIN and SEED_ADMIN_PASSWORD are required');
   }
 
   const admin = await prisma.user.create({
     data: {
-      email: 'tech.admin@codekids.cc',
-      password: await bcrypt.hash('1Gb128OP', 10),
+      login,
+      email: process.env['SEED_ADMIN_EMAIL'],
+      password: await bcrypt.hash(password, 10),
       firstName: 'Tech',
       lastName: 'Admin',
       staffRoles: [Role.ADMIN],
     },
   });
 
-  console.log(`Admin created: ${admin.email}`);
+  console.log(`Admin created: ${admin.id}`);
 }
 
 main()

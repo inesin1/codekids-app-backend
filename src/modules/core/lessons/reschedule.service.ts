@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import {
   Prisma,
+  LessonStatus,
   Role,
   RescheduleRequestStatus,
   RescheduleRequestType,
@@ -39,10 +40,10 @@ export class RescheduleService implements OnModuleInit {
       /^rr:(approve|reject):(\w+)$/,
       async (ctx) => {
         const [, action, requestId] = ctx.match;
-        const actor = await this.findTelegramActor(ctx.from.id);
+        const actor = await this.findTelegramActor(ctx.from.id, requestId);
         if (!actor) {
           await ctx.answerCallbackQuery({
-            text: 'Сначала подключите Telegram: в профиле личного кабинета или по ссылке от менеджера.',
+            text: 'Эта заявка доступна только её участникам и сотрудникам.',
             show_alert: true,
           });
           return;
@@ -79,54 +80,88 @@ export class RescheduleService implements OnModuleInit {
       );
     }
 
-    const lesson = await this.lessonsService.findById(lessonId);
-    await this.assertOwnsLesson(user, lesson.teacherId, lesson.studentId);
+    return this.prisma.$transaction(async (tx) => {
+      const lesson = await tx.lesson.findUnique({
+        where: { id: lessonId },
+        select: { status: true, teacherId: true, studentId: true },
+      });
+      if (!lesson) throw new NotFoundException('Lesson not found');
+      this.assertOwnsLesson(user, lesson.teacherId, lesson.studentId);
+      if (lesson.status !== LessonStatus.SCHEDULED) {
+        throw new BadRequestException(
+          `Cannot create a request for lesson with status ${lesson.status}`,
+        );
+      }
+      const locked = await tx.lesson.updateMany({
+        where: { id: lessonId, status: LessonStatus.SCHEDULED },
+        data: { updatedAt: new Date() },
+      });
+      if (!locked.count) {
+        const current = await tx.lesson.findUnique({
+          where: { id: lessonId },
+          select: { status: true },
+        });
+        if (!current) throw new NotFoundException('Lesson not found');
+        throw new BadRequestException(
+          `Cannot create a request for lesson with status ${current.status}`,
+        );
+      }
 
-    const request = await this.prisma.rescheduleRequest.create({
-      data: {
-        lessonId,
-        createdById: user.id,
-        type: dto.type,
-        reason: dto.reason,
-        proposedDate: dto.proposedDate ? new Date(dto.proposedDate) : undefined,
-      },
-      include: { lesson: true, createdBy: { omit: { password: true } } },
+      const request = await tx.rescheduleRequest.create({
+        data: {
+          lessonId,
+          createdById: user.id,
+          type: dto.type,
+          reason: dto.reason,
+          proposedDate: dto.proposedDate
+            ? new Date(dto.proposedDate)
+            : undefined,
+        },
+        include: { lesson: true, createdBy: { omit: { password: true } } },
+      });
+      await this.audit.record(
+        {
+          action: 'reschedule_request.created',
+          entityType: 'RescheduleRequest',
+          entityId: request.id,
+          details: { lessonId, type: dto.type, proposedDate: dto.proposedDate },
+        },
+        tx,
+      );
+      await this.notifier.rescheduleRequestChanged(request.id, tx);
+      return request;
     });
-    this.audit.log({
-      action: 'reschedule_request.created',
-      entityType: 'RescheduleRequest',
-      entityId: request.id,
-      details: { lessonId, type: dto.type, proposedDate: dto.proposedDate },
-    });
-    this.notifier.rescheduleRequestChanged(request.id);
-    return request;
   }
 
-  // Учитель может заявлять только по своим урокам, родитель — по урокам своих детей
-  /** Проверяет, что пользователь является учителем или родителем ученика данного урока. */
-  private async assertOwnsLesson(
-    user: Actor,
-    teacherId: string,
-    studentId: string,
-  ) {
+  /** Checks that a teacher or student belongs to the requested lesson. */
+  private assertOwnsLesson(user: Actor, teacherId: string, studentId: string) {
     if (user.roles.includes(Role.TEACHER) && user.id === teacherId) {
       return;
     }
-    if (user.roles.includes(Role.PARENT)) {
-      const parent = await this.prisma.parentProfile.findUnique({
-        where: { userId: user.id },
-        select: { students: { select: { userId: true } } },
-      });
-      if (parent?.students.some((s) => s.userId === studentId)) return;
-    }
+    if (user.roles.includes(Role.STUDENT) && user.id === studentId) return;
     throw new ForbiddenException('You do not have access to this lesson');
   }
 
-  findAll(filters: { status?: RescheduleRequestStatus; lessonId?: string }) {
+  findAll(
+    filters: { status?: RescheduleRequestStatus; lessonId?: string },
+    actor: Actor,
+  ) {
+    const isStaff =
+      actor.roles.includes(Role.ADMIN) || actor.roles.includes(Role.MANAGER);
+    const lessonScope = isStaff
+      ? undefined
+      : actor.roles.includes(Role.TEACHER)
+        ? { teacherId: actor.id }
+        : actor.roles.includes(Role.STUDENT)
+          ? { studentId: actor.id }
+          : null;
+    if (lessonScope === null) throw new ForbiddenException();
+
     return this.prisma.rescheduleRequest.findMany({
       where: {
         status: filters.status,
         lessonId: filters.lessonId,
+        ...(lessonScope && { lesson: { is: lessonScope } }),
       },
       include: {
         lesson: true,
@@ -141,7 +176,7 @@ export class RescheduleService implements OnModuleInit {
     const request = await this.findForResolve(requestId, actor);
 
     // Изменение урока + закрытие заявки атомарно
-    const approved = await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       await this.closePending(
         tx,
         requestId,
@@ -150,68 +185,98 @@ export class RescheduleService implements OnModuleInit {
       );
       if (request.type === RescheduleRequestType.CANCEL) {
         await this.lessonsService.cancelWithin(tx, request.lessonId);
+        await this.audit.record(
+          {
+            action: 'lesson.canceled',
+            entityType: 'Lesson',
+            entityId: request.lessonId,
+            actorId: actor.id,
+          },
+          tx,
+        );
+        await this.notifier.lessonCanceled(request.lessonId, tx);
       } else {
-        await this.lessonsService.rescheduleWithin(tx, request.lessonId, {
-          newDate: request.proposedDate!.toISOString(),
-        });
+        const lesson = await this.lessonsService.rescheduleWithin(
+          tx,
+          request.lessonId,
+          {
+            newDate: request.proposedDate!.toISOString(),
+          },
+        );
+        await this.audit.record(
+          {
+            action: 'lesson.rescheduled',
+            entityType: 'Lesson',
+            entityId: request.lessonId,
+            actorId: actor.id,
+            details: {
+              newDate: request.proposedDate!.toISOString(),
+              newLessonId: lesson.rescheduledToId,
+            },
+          },
+          tx,
+        );
+        await this.notifier.lessonRescheduled(
+          request.lessonId,
+          request.lesson.scheduledAt,
+          tx,
+        );
       }
+      await this.audit.record(
+        {
+          action: 'reschedule_request.approved',
+          entityType: 'RescheduleRequest',
+          entityId: requestId,
+          actorId: actor.id,
+          details: {
+            lessonId: request.lessonId,
+            type: request.type,
+            proposedDate: request.proposedDate?.toISOString(),
+          },
+        },
+        tx,
+      );
+      await this.notifier.rescheduleRequestChanged(requestId, tx);
       return tx.rescheduleRequest.findUniqueOrThrow({
         where: { id: requestId },
         include: { lesson: true },
       });
     });
-    this.audit.log({
-      action: 'reschedule_request.approved',
-      entityType: 'RescheduleRequest',
-      entityId: requestId,
-      actorId: actor.id,
-      details: {
-        lessonId: request.lessonId,
-        type: request.type,
-        proposedDate: request.proposedDate?.toISOString(),
-      },
-    });
-    this.notifier.rescheduleRequestChanged(requestId);
-    if (request.type === RescheduleRequestType.CANCEL) {
-      this.notifier.lessonCanceled(request.lessonId);
-    } else {
-      this.notifier.lessonRescheduled(
-        request.lessonId,
-        request.lesson.scheduledAt,
-      );
-    }
-    return approved;
   }
 
   async reject(requestId: string, actor: Actor) {
     const request = await this.findForResolve(requestId, actor);
 
-    await this.closePending(
-      this.prisma,
-      requestId,
-      actor.id,
-      RescheduleRequestStatus.REJECTED,
-    );
-    const rejected = await this.prisma.rescheduleRequest.findUniqueOrThrow({
-      where: { id: requestId },
-      include: { lesson: true },
+    return this.prisma.$transaction(async (tx) => {
+      await this.closePending(
+        tx,
+        requestId,
+        actor.id,
+        RescheduleRequestStatus.REJECTED,
+      );
+      await this.audit.record(
+        {
+          action: 'reschedule_request.rejected',
+          entityType: 'RescheduleRequest',
+          entityId: requestId,
+          actorId: actor.id,
+          details: { lessonId: request.lessonId },
+        },
+        tx,
+      );
+      await this.notifier.rescheduleRequestChanged(requestId, tx);
+      return tx.rescheduleRequest.findUniqueOrThrow({
+        where: { id: requestId },
+        include: { lesson: true },
+      });
     });
-    this.audit.log({
-      action: 'reschedule_request.rejected',
-      entityType: 'RescheduleRequest',
-      entityId: requestId,
-      actorId: actor.id,
-      details: { lessonId: request.lessonId },
-    });
-    this.notifier.rescheduleRequestChanged(requestId);
-    return rejected;
   }
 
   private async findForResolve(id: string, actor: Actor) {
     const request = await this.prisma.rescheduleRequest.findUnique({
       where: { id },
       include: {
-        lesson: { include: { student: { select: { parentId: true } } } },
+        lesson: { include: { student: { select: { userId: true } } } },
       },
     });
     if (!request) {
@@ -224,13 +289,11 @@ export class RescheduleService implements OnModuleInit {
     return request;
   }
 
-  // Заявку преподавателя решает родитель ученика, заявку родителя — преподаватель.
-  // ADMIN/MANAGER — любую
-  /** Заявку учителя решает родитель, заявку родителя — учитель. ADMIN/MANAGER решают любую. */
+  /** Lets the other lesson participant or staff resolve a request. */
   private assertCanResolve(
     request: {
       createdById: string;
-      lesson: { teacherId: string; student: { parentId: string | null } };
+      lesson: { teacherId: string; student: { userId: string } };
     },
     actor: Actor,
   ) {
@@ -242,7 +305,7 @@ export class RescheduleService implements OnModuleInit {
     }
     const { teacherId, student } = request.lesson;
     const otherSide =
-      request.createdById === teacherId ? student.parentId : teacherId;
+      request.createdById === teacherId ? student.userId : teacherId;
     if (actor.id !== otherSide || actor.id === request.createdById) {
       throw new ForbiddenException(
         'Only the other side or staff can resolve this request',
@@ -271,14 +334,53 @@ export class RescheduleService implements OnModuleInit {
 
   // В личном чате chat.id совпадает с Telegram user id — по нему опознаём
   // нажавшего кнопку в группе
-  /** Ищет пользователя по Telegram user id (chat.id личного чата = user id). */
-  private async findTelegramActor(telegramUserId: number) {
-    const user = await this.prisma.user.findUnique({
-      where: { telegramChatId: String(telegramUserId) },
+  /** Finds a linked active user who is authorized for this specific request. */
+  private async findTelegramActor(telegramUserId: number, requestId: string) {
+    const request = await this.prisma.rescheduleRequest.findUnique({
+      where: { id: requestId },
+      select: {
+        createdById: true,
+        lesson: { select: { teacherId: true, studentId: true } },
+      },
+    });
+    if (!request) return null;
+
+    const users = await this.prisma.user.findMany({
+      where: { telegramChatId: String(telegramUserId), isActive: true },
       include: UsersService.profileExists,
     });
-    return user?.isActive
-      ? { id: user.id, roles: UsersService.resolveRoles(user) }
-      : null;
+    const linkedUsers = users.map((user) => ({
+      id: user.id,
+      roles: UsersService.resolveRoles(user),
+    }));
+    const staff = linkedUsers.find(
+      (user) =>
+        user.roles.includes(Role.ADMIN) || user.roles.includes(Role.MANAGER),
+    );
+    if (staff) return staff;
+
+    // A participant cannot approve their own request through another profile
+    // that happens to share the same Telegram account.
+    if (
+      linkedUsers.some(
+        (user) =>
+          user.id === request.createdById &&
+          (user.roles.includes(Role.TEACHER) ||
+            user.roles.includes(Role.STUDENT)),
+      )
+    ) {
+      return null;
+    }
+
+    const otherSideIsStudent = request.createdById === request.lesson.teacherId;
+    const otherSideId = otherSideIsStudent
+      ? request.lesson.studentId
+      : request.lesson.teacherId;
+    const otherSideRole = otherSideIsStudent ? Role.STUDENT : Role.TEACHER;
+    return (
+      linkedUsers.find(
+        (user) => user.id === otherSideId && user.roles.includes(otherSideRole),
+      ) ?? null
+    );
   }
 }

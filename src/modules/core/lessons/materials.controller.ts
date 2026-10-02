@@ -62,32 +62,33 @@ export class MaterialsController {
     @Param('lessonId') lessonId: string,
     @Param('id') id: string,
   ) {
-    const material = await this.materialsService.findFile(id, lessonId);
     await this.lessonsService.assertUserCanView(lessonId, req.user!);
+    const material = await this.materialsService.findFile(id, lessonId);
     return new StreamableFile(Buffer.from(material.fileData), {
       type: material.fileType ?? 'application/octet-stream',
       disposition: `attachment; filename*=UTF-8''${encodeURIComponent(material.title)}`,
     });
   }
 
-  @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER)
+  @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER, Role.STUDENT)
   @Get()
   async findByLessonId(
     @Req() req: Express.Request,
     @Param('lessonId') lessonId: string,
   ) {
-    await this.assertAccess(req.user!, lessonId);
+    await this.lessonsService.assertUserCanView(lessonId, req.user!);
     return this.materialsService.findByLessonId(lessonId);
   }
 
   @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER)
   @Delete(':id')
-  async remove(@Req() req: Express.Request, @Param('id') id: string) {
-    if (!this.isStaff(req.user!)) {
-      const lessonId = await this.materialsService.getLessonId(id);
-      await this.assertAccess(req.user!, lessonId);
-    }
-    return this.materialsService.remove(id);
+  async remove(
+    @Req() req: Express.Request,
+    @Param('lessonId') lessonId: string,
+    @Param('id') id: string,
+  ) {
+    await this.assertAccess(req.user!, lessonId);
+    return this.materialsService.remove(id, lessonId);
   }
 
   private isStaff(user: { roles: Role[] }) {

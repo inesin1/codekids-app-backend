@@ -38,18 +38,23 @@ export class LessonGenerationService {
   }
 
   async updateSettings(dto: UpdateGenerationSettingsDto) {
-    const settings = await this.prisma.lessonGenerationSettings.upsert({
-      where: { id: SETTINGS_ID },
-      create: { id: SETTINGS_ID, ...dto },
-      update: dto,
+    return this.prisma.$transaction(async (tx) => {
+      const settings = await tx.lessonGenerationSettings.upsert({
+        where: { id: SETTINGS_ID },
+        create: { id: SETTINGS_ID, ...dto },
+        update: dto,
+      });
+      await this.audit.record(
+        {
+          action: 'lesson_generation_settings.updated',
+          entityType: 'LessonGenerationSettings',
+          entityId: SETTINGS_ID,
+          details: { ...dto },
+        },
+        tx,
+      );
+      return settings;
     });
-    this.audit.log({
-      action: 'lesson_generation_settings.updated',
-      entityType: 'LessonGenerationSettings',
-      entityId: SETTINGS_ID,
-      details: { ...dto },
-    });
-    return settings;
   }
 
   // Ежедневно проверяем настройки; генерим только в выбранный день недели

@@ -10,6 +10,7 @@ import {
   Prisma,
   RescheduleRequestStatus,
   RescheduleRequestType,
+  TelegramRecipientKind,
 } from '../../../generated/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -72,7 +73,7 @@ type LessonHeader = {
   enrollment: { course: { name: string } };
 };
 
-/** Отправляет уведомления в Telegram (fire-and-forget). */
+/** Сохраняет исходящие уведомления Telegram. */
 @Injectable()
 export class TelegramNotifier {
   private readonly logger = new Logger(TelegramNotifier.name);
@@ -92,14 +93,11 @@ export class TelegramNotifier {
     edited = false,
     db: PrismaService | Prisma.TransactionClient = this.prisma,
   ) {
-    if (!this.telegram.enabled) return;
     const report = await db.lessonReport.findUniqueOrThrow({
       where: { id: reportId },
       include: { lesson: { include: lessonContext } },
     });
     const { lesson } = report;
-    const chatId = this.groupChat(lesson.student);
-    if (!chatId) return;
 
     const fields: [string, string | null][] = [
       ['Тема', report.topic],
@@ -124,23 +122,19 @@ export class TelegramNotifier {
         : []),
     ].join('\n');
 
-    const updated = await this.telegram.updateMessage(
-      NotificationType.LESSON_REPORT,
-      reportId,
-      { text },
+    await this.telegram.enqueue(
+      {
+        recipient: {
+          kind: TelegramRecipientKind.GROUP,
+          id: lesson.student.userId,
+        },
+        occurrenceKey: 'report',
+        type: NotificationType.LESSON_REPORT,
+        entityId: reportId,
+        text,
+      },
       db,
     );
-    if (!updated) {
-      await this.telegram.enqueue(
-        {
-          chatId,
-          type: NotificationType.LESSON_REPORT,
-          entityId: reportId,
-          text,
-        },
-        db,
-      );
-    }
 
     const attachments = await db.material.findMany({
       where: { reportId: report.id, sentToTelegram: false },
@@ -153,8 +147,13 @@ export class TelegramNotifier {
   }
 
   /** Отправляет уведомление о добавлении материала к занятию в группу ученика. */
-  materialAdded(materialId: string) {
-    this.fire('materialAdded', () => this.enqueueMaterial(materialId));
+  async materialAdded(
+    materialId: string,
+    db: Prisma.TransactionClient = this.prisma,
+  ) {
+    return this.persist('materialAdded', db, async () => {
+      await this.enqueueMaterial(materialId, db);
+    });
   }
 
   private async enqueueMaterial(
@@ -171,79 +170,94 @@ export class TelegramNotifier {
     });
     const { lesson } = material;
     if (!lesson) return;
-    const chatId = this.groupChat(lesson.student);
-    if (!chatId) return;
-
-    const message = {
-      chatId,
-      type: NotificationType.MATERIAL_ADDED,
-      entityId: materialId,
-      text: [
-        material.reportId
-          ? '📎 <b>Вложение к отчёту</b>'
-          : '📎 <b>Новый материал к занятию</b>',
-        this.header(lesson),
-        '',
-        `<b>${esc(material.title)}</b>`,
-      ].join('\n'),
-    };
-    const updated = await this.telegram.updateMessage(
-      NotificationType.MATERIAL_ADDED,
-      materialId,
-      { text: message.text },
+    await this.telegram.enqueue(
+      {
+        recipient: {
+          kind: TelegramRecipientKind.GROUP,
+          id: lesson.student.userId,
+        },
+        occurrenceKey: 'material',
+        type: NotificationType.MATERIAL_ADDED,
+        entityId: materialId,
+        text: [
+          material.reportId
+            ? '📎 <b>Вложение к отчёту</b>'
+            : '📎 <b>Новый материал к занятию</b>',
+          this.header(lesson),
+          '',
+          `<b>${esc(material.title)}</b>`,
+        ].join('\n'),
+      },
       db,
     );
-    if (!updated) await this.telegram.enqueue(message, db);
   }
 
   /** Отправляет уведомление об отмене занятия в группу ученика. */
-  lessonCanceled(lessonId: string) {
-    this.fire('lessonCanceled', async () => {
-      const lesson = await this.prisma.lesson.findUniqueOrThrow({
+  async lessonCanceled(
+    lessonId: string,
+    db: Prisma.TransactionClient = this.prisma,
+  ) {
+    return this.persist('lessonCanceled', db, async () => {
+      const lesson = await db.lesson.findUniqueOrThrow({
         where: { id: lessonId },
         include: lessonContext,
       });
-      const chatId = this.groupChat(lesson.student);
-      if (!chatId) return;
-
-      await this.telegram.enqueue({
-        chatId,
-        type: NotificationType.LESSON_CANCEL,
-        entityId: lessonId,
-        text: ['❌ <b>Занятие отменено</b>', this.header(lesson)].join('\n'),
-      });
+      await this.telegram.enqueue(
+        {
+          recipient: {
+            kind: TelegramRecipientKind.GROUP,
+            id: lesson.student.userId,
+          },
+          occurrenceKey: 'cancel',
+          type: NotificationType.LESSON_CANCEL,
+          entityId: lessonId,
+          text: ['❌ <b>Занятие отменено</b>', this.header(lesson)].join('\n'),
+        },
+        db,
+      );
     });
   }
 
   /** Отправляет уведомление о переносе занятия в группу ученика. */
-  lessonRescheduled(lessonId: string, from: Date) {
-    this.fire('lessonRescheduled', async () => {
-      const lesson = await this.prisma.lesson.findUniqueOrThrow({
+  async lessonRescheduled(
+    lessonId: string,
+    from: Date,
+    db: Prisma.TransactionClient = this.prisma,
+  ) {
+    return this.persist('lessonRescheduled', db, async () => {
+      const lesson = await db.lesson.findUniqueOrThrow({
         where: { id: lessonId },
         include: { ...lessonContext, rescheduledTo: true },
       });
-      const chatId = this.groupChat(lesson.student);
-      if (!chatId) return;
-
       const target = lesson.rescheduledTo ?? lesson;
-      await this.telegram.enqueue({
-        chatId,
-        type: NotificationType.LESSON_RESCHEDULE,
-        entityId: lessonId,
-        text: [
-          '🔄 <b>Занятие перенесено</b>',
-          `📚 ${esc(lesson.enrollment.course.name)} · ${fullName(lesson.student.user)}`,
-          `🗓 <s>${formatDateTime(from)}</s> → <b>${formatDateTime(target.scheduledAt)}</b> (МСК)`,
-          this.lessonLink(target.id),
-        ].join('\n'),
-      });
+      await this.telegram.enqueue(
+        {
+          recipient: {
+            kind: TelegramRecipientKind.GROUP,
+            id: lesson.student.userId,
+          },
+          occurrenceKey: from.toISOString(),
+          type: NotificationType.LESSON_RESCHEDULE,
+          entityId: lessonId,
+          text: [
+            '🔄 <b>Занятие перенесено</b>',
+            `📚 ${esc(lesson.enrollment.course.name)} · ${fullName(lesson.student.user)}`,
+            `🗓 <s>${formatDateTime(from)}</s> → <b>${formatDateTime(target.scheduledAt)}</b> (МСК)`,
+            this.lessonLink(target.id),
+          ].join('\n'),
+        },
+        db,
+      );
     });
   }
 
   /** Создает или обновляет сообщение с заявкой на перенос/отмену в группе ученика. */
-  rescheduleRequestChanged(requestId: string) {
-    this.fire('rescheduleRequestChanged', async () => {
-      const request = await this.prisma.rescheduleRequest.findUniqueOrThrow({
+  async rescheduleRequestChanged(
+    requestId: string,
+    db: Prisma.TransactionClient = this.prisma,
+  ) {
+    return this.persist('rescheduleRequestChanged', db, async () => {
+      const request = await db.rescheduleRequest.findUniqueOrThrow({
         where: { id: requestId },
         include: {
           lesson: { include: lessonContext },
@@ -252,14 +266,12 @@ export class TelegramNotifier {
         },
       });
       const { lesson } = request;
-      const chatId = this.groupChat(lesson.student);
-      if (!chatId) return;
 
       const isCancel = request.type === RescheduleRequestType.CANCEL;
       const fromTeacher = request.createdById === lesson.teacherId;
       const pending = request.status === RescheduleRequestStatus.PENDING;
       const status = {
-        [RescheduleRequestStatus.PENDING]: `⏳ Ждёт подтверждения: ${fromTeacher ? 'родитель' : 'преподаватель'} или менеджер`,
+        [RescheduleRequestStatus.PENDING]: `⏳ Ждёт подтверждения: ${fromTeacher ? 'ученик' : 'преподаватель'} или менеджер`,
         [RescheduleRequestStatus.APPROVED]: `✅ Подтверждено: ${request.resolvedBy ? fullName(request.resolvedBy) : '—'}`,
         [RescheduleRequestStatus.REJECTED]: `🚫 Отклонено: ${request.resolvedBy ? fullName(request.resolvedBy) : '—'}`,
       }[request.status];
@@ -274,7 +286,7 @@ export class TelegramNotifier {
               `➡️ Новая дата: <b>${formatDateTime(request.proposedDate)}</b> (МСК)`,
             ]
           : []),
-        `👤 ${fullName(request.createdBy)} (${fromTeacher ? 'преподаватель' : 'родитель'})`,
+        `👤 ${fullName(request.createdBy)} (${fromTeacher ? 'преподаватель' : 'ученик'})`,
         ...(request.reason ? [`💬 ${clip(request.reason, 500)}`] : []),
         '',
         status,
@@ -296,27 +308,26 @@ export class TelegramNotifier {
           }
         : { inline_keyboard: [] };
 
-      const updated = await this.telegram.updateMessage(
-        NotificationType.RESCHEDULE_REQUEST,
-        requestId,
-        { text, replyMarkup },
-      );
-      if (!updated && pending) {
-        await this.telegram.enqueue({
-          chatId,
+      await this.telegram.enqueue(
+        {
+          recipient: {
+            kind: TelegramRecipientKind.GROUP,
+            id: lesson.student.userId,
+          },
+          occurrenceKey: 'request',
           type: NotificationType.RESCHEDULE_REQUEST,
           entityId: requestId,
           text,
-          replyMarkup,
-        });
-      }
+          replyMarkup: pending ? replyMarkup : null,
+        },
+        db,
+      );
     });
   }
 
   /** Отправляет напоминания о занятиях за сутки и за 15 минут. */
   @Cron(CronExpression.EVERY_MINUTE)
   async sendLessonReminders() {
-    if (!this.telegram.enabled) return;
     const now = Date.now();
 
     for (const reminder of LESSON_REMINDERS) {
@@ -333,20 +344,13 @@ export class TelegramNotifier {
       });
       if (!lessons.length) continue;
 
-      const sent = await this.prisma.telegramNotification.findMany({
-        where: {
-          type: reminder.type,
-          entityId: { in: lessons.map((l) => l.id) },
-        },
-        select: { entityId: true },
-      });
-      const sentIds = new Set(sent.map((n) => n.entityId));
-
       for (const lesson of lessons) {
-        const chatId = this.groupChat(lesson.student);
-        if (!chatId || sentIds.has(lesson.id)) continue;
         await this.telegram.enqueue({
-          chatId,
+          recipient: {
+            kind: TelegramRecipientKind.GROUP,
+            id: lesson.student.userId,
+          },
+          occurrenceKey: lesson.scheduledAt.toISOString(),
           type: reminder.type,
           entityId: lesson.id,
           text: [
@@ -362,8 +366,6 @@ export class TelegramNotifier {
   /** Отправляет сотрудникам напоминания о днях рождения учеников. */
   @Cron('0 9 * * *', { timeZone: MOSCOW_TIME_ZONE })
   async sendBirthdayReminders() {
-    if (!this.telegram.enabled) return;
-
     const today = DateTime.now().setZone(MOSCOW_TIME_ZONE).startOf('day');
     const students = await this.prisma.studentProfile.findMany({
       where: { user: { isActive: true, birthDate: { not: null } } },
@@ -378,7 +380,7 @@ export class TelegramNotifier {
         telegramChatId: { not: null },
         staffRoles: { hasSome: [Role.ADMIN, Role.MANAGER] },
       },
-      select: { telegramChatId: true },
+      select: { id: true },
     });
     if (!staff.length) return;
 
@@ -391,28 +393,18 @@ export class TelegramNotifier {
       });
       if (!matchingStudents.length) continue;
 
-      const entityIds = matchingStudents.map(
-        ({ userId }) => `${userId}:${date.year}`,
-      );
-      const sent = await this.prisma.telegramNotification.findMany({
-        where: { type: reminder.type, entityId: { in: entityIds } },
-        select: { entityId: true },
-      });
-      const sentIds = new Set(sent.map(({ entityId }) => entityId));
-
       for (const student of matchingStudents) {
         const entityId = `${student.userId}:${date.year}`;
-        if (sentIds.has(entityId)) continue;
 
         const text = [
           reminder.title,
           `👤 ${fullName(student.user)}`,
           `📅 ${formatDate(student.user.birthDate!)}`,
         ].join('\n');
-        for (const { telegramChatId } of staff) {
-          if (!telegramChatId) continue;
+        for (const { id: userId } of staff) {
           await this.telegram.enqueue({
-            chatId: telegramChatId,
+            recipient: { kind: TelegramRecipientKind.USER, id: userId },
+            occurrenceKey: date.toISODate()!,
             type: reminder.type,
             entityId,
             text,
@@ -423,46 +415,53 @@ export class TelegramNotifier {
   }
 
   /** Отправляет уведомление о расчете или переводе выплаты преподавателю. */
-  payoutChanged(payoutId: string) {
-    this.fire('payoutChanged', async () => {
-      const payout = await this.prisma.payout.findUniqueOrThrow({
+  async payoutChanged(
+    payoutId: string,
+    db: Prisma.TransactionClient = this.prisma,
+  ) {
+    return this.persist('payoutChanged', db, async () => {
+      const payout = await db.payout.findUniqueOrThrow({
         where: { id: payoutId },
         include: { teacher: { include: { user: true } } },
       });
-      const chatId = payout.teacher.user.telegramChatId;
-      if (!chatId) return;
-
       // исключаем правую границу диапазона [start, end)
       const periodEnd = new Date(payout.periodEnd.getTime() - 1);
-      await this.telegram.enqueue({
-        chatId,
-        type: NotificationType.PAYOUT_NOTIFICATION,
-        entityId: payoutId,
-        text: [
-          payout.status === PayoutStatus.PAID
-            ? '✅ <b>Выплата произведена</b>'
-            : '💰 <b>Начислена выплата</b>',
-          `Период: ${formatDate(payout.periodStart)} — ${formatDate(periodEnd)}`,
-          `Занятия: ${money(payout.basePay)}`,
-          `Премии за отчёты: ${money(payout.bonusPay)}`,
-          `<b>Итого: ${money(payout.totalPay)}</b>`,
-        ].join('\n'),
-      });
+      await this.telegram.enqueue(
+        {
+          recipient: {
+            kind: TelegramRecipientKind.USER,
+            id: payout.teacher.userId,
+          },
+          occurrenceKey: 'payout',
+          type: NotificationType.PAYOUT_NOTIFICATION,
+          entityId: payoutId,
+          text: [
+            payout.status === PayoutStatus.PAID
+              ? '✅ <b>Выплата произведена</b>'
+              : '💰 <b>Начислена выплата</b>',
+            `Период: ${formatDate(payout.periodStart)} — ${formatDate(periodEnd)}`,
+            `Занятия: ${money(payout.basePay)}`,
+            `Премии за отчёты: ${money(payout.bonusPay)}`,
+            `<b>Итого: ${money(payout.totalPay)}</b>`,
+          ].join('\n'),
+        },
+        db,
+      );
     });
   }
 
-  private fire(name: string, job: () => Promise<void>) {
-    if (!this.telegram.enabled) return;
-    void job().catch((e) =>
-      this.logger.error(`Telegram notification ${name} failed`, e),
-    );
-  }
-
-  private groupChat(student: {
-    telegramGroup: { telegramChatId: string; isActive: boolean } | null;
-  }) {
-    const group = student.telegramGroup;
-    return group?.isActive ? group.telegramChatId : null;
+  /** Сохраняет событие в транзакции либо логирует ошибку старого вызова без транзакции. */
+  private async persist(
+    name: string,
+    db: Prisma.TransactionClient,
+    job: () => Promise<void>,
+  ) {
+    try {
+      await job();
+    } catch (error) {
+      if (db !== this.prisma) throw error;
+      this.logger.error(`Telegram notification ${name} failed`, error);
+    }
   }
 
   private header(lesson: LessonHeader) {

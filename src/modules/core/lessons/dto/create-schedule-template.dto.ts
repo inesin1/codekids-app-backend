@@ -33,11 +33,13 @@ export class CreateScheduleTemplateDto {
   @IsString()
   enrollmentId: string;
 
+  @IsOptional()
   @IsString()
-  teacherId: string;
+  teacherId?: string;
 
+  @IsOptional()
   @IsString()
-  studentId: string;
+  studentId?: string;
 
   @IsArray()
   @ArrayNotEmpty()

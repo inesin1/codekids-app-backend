@@ -8,7 +8,7 @@ import { CreateRescheduleRequestDto } from './dto/create-reschedule-request.dto'
 export class RescheduleController {
   constructor(private readonly rescheduleService: RescheduleService) {}
 
-  @Roles(Role.TEACHER, Role.PARENT)
+  @Roles(Role.TEACHER, Role.STUDENT)
   @Post('lessons/:lessonId/reschedule-requests')
   createRequest(
     @Req() req: Express.Request,
@@ -18,22 +18,23 @@ export class RescheduleController {
     return this.rescheduleService.createRequest(lessonId, req.user!, dto);
   }
 
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER, Role.STUDENT)
   @Get('reschedule-requests')
   findAll(
+    @Req() req: Express.Request,
     @Query('status') status?: RescheduleRequestStatus,
     @Query('lessonId') lessonId?: string,
   ) {
-    return this.rescheduleService.findAll({ status, lessonId });
+    return this.rescheduleService.findAll({ status, lessonId }, req.user!);
   }
 
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER, Role.STUDENT)
   @Post('reschedule-requests/:id/approve')
   approve(@Req() req: Express.Request, @Param('id') id: string) {
     return this.rescheduleService.approve(id, req.user!);
   }
 
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER, Role.STUDENT)
   @Post('reschedule-requests/:id/reject')
   reject(@Req() req: Express.Request, @Param('id') id: string) {
     return this.rescheduleService.reject(id, req.user!);

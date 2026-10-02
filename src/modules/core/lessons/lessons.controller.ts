@@ -12,7 +12,6 @@ import {
 } from '@nestjs/common';
 import { LessonStatus, Role } from '../../../generated/client';
 import { Roles } from '../../common/auth/decorators/roles.decorator';
-import { PrismaService } from '../../common/prisma/prisma.service';
 import { LessonsService } from './lessons.service';
 import { LessonGenerationService } from './lesson-generation.service';
 import { CreateLessonDto } from './dto/create-lesson.dto';
@@ -26,7 +25,6 @@ export class LessonsController {
   constructor(
     private readonly lessonsService: LessonsService,
     private readonly lessonGenerationService: LessonGenerationService,
-    private readonly prisma: PrismaService,
   ) {}
 
   @Roles(Role.ADMIN, Role.MANAGER)
@@ -56,7 +54,7 @@ export class LessonsController {
   }
 
   @Get()
-  async findAll(
+  findAll(
     @Req() req: Express.Request,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
@@ -64,7 +62,7 @@ export class LessonsController {
     @Query('teacherId') teacherId?: string,
     @Query('studentId') studentId?: string,
   ) {
-    const scope = await this.resolveScope(req.user!);
+    const scope = this.resolveScope(req.user!);
     return this.lessonsService.findAll(
       { dateFrom, dateTo, status, teacherId, studentId },
       scope,
@@ -72,8 +70,8 @@ export class LessonsController {
   }
 
   @Get(':id')
-  async findById(@Req() req: Express.Request, @Param('id') id: string) {
-    const scope = await this.resolveScope(req.user!);
+  findById(@Req() req: Express.Request, @Param('id') id: string) {
+    const scope = this.resolveScope(req.user!);
     return this.lessonsService.findById(id, scope);
   }
 
@@ -114,25 +112,15 @@ export class LessonsController {
     return user.roles.includes(Role.ADMIN) || user.roles.includes(Role.MANAGER);
   }
 
-  private async resolveScope(user: { id: string; roles: Role[] }) {
+  private resolveScope(user: { id: string; roles: Role[] }) {
     if (this.isStaff(user)) {
       return undefined;
     }
     if (user.roles.includes(Role.TEACHER)) {
       return { teacherUserId: user.id };
     }
-    if (user.roles.includes(Role.PARENT)) {
-      const students = await this.prisma.studentProfile.findMany({
-        where: { parentId: user.id },
-        select: { userId: true },
-      });
-      return {
-        studentUserIds: students.map((s) => s.userId),
-        hideInternalNotes: true,
-      };
-    }
     if (user.roles.includes(Role.STUDENT)) {
-      return { studentUserIds: [user.id], hideInternalNotes: true };
+      return { studentUserId: user.id, hideInternalNotes: true };
     }
     throw new ForbiddenException();
   }

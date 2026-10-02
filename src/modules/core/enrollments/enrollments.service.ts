@@ -12,7 +12,12 @@ import { UpdateEnrollmentDto } from './dto/update-enrollment.dto';
 
 const includeProfiles = {
   teacher: { include: { user: { omit: { password: true } } } },
-  student: { include: { user: { omit: { password: true } } } },
+  student: {
+    select: {
+      userId: true,
+      user: { omit: { password: true } },
+    },
+  },
   course: true,
 } as const;
 
@@ -66,43 +71,49 @@ export class EnrollmentsService {
       );
     }
 
-    try {
-      const enrollment = await this.prisma.enrollment.create({
-        data: dto,
-        include: includeProfiles,
-      });
-      this.audit.log({
-        action: 'enrollment.created',
-        entityType: 'Enrollment',
-        entityId: enrollment.id,
-        details: {
-          teacherId: dto.teacherId,
-          studentId: dto.studentId,
-          courseId: dto.courseId,
+    return this.prisma.$transaction(async (tx) => {
+      const enrollment = await tx.enrollment
+        .create({
+          data: dto,
+          include: includeProfiles,
+        })
+        .catch((e: unknown) => {
+          if (
+            e instanceof Prisma.PrismaClientKnownRequestError &&
+            e.code === 'P2002'
+          ) {
+            throw new ConflictException(
+              'Enrollment already exists for this teacher-student-course',
+            );
+          }
+
+          if (
+            e instanceof Prisma.PrismaClientKnownRequestError &&
+            e.code === 'P2003'
+          ) {
+            throw new BadRequestException(
+              'teacherId, studentId and courseId must reference existing records',
+            );
+          }
+
+          throw e;
+        });
+
+      await this.audit.record(
+        {
+          action: 'enrollment.created',
+          entityType: 'Enrollment',
+          entityId: enrollment.id,
+          details: {
+            teacherId: dto.teacherId,
+            studentId: dto.studentId,
+            courseId: dto.courseId,
+          },
         },
-      });
+        tx,
+      );
       return enrollment;
-    } catch (e) {
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2002'
-      ) {
-        throw new ConflictException(
-          'Enrollment already exists for this teacher-student-course',
-        );
-      }
-
-      if (
-        e instanceof Prisma.PrismaClientKnownRequestError &&
-        e.code === 'P2003'
-      ) {
-        throw new BadRequestException(
-          'teacherId, studentId and courseId must reference existing records',
-        );
-      }
-
-      throw e;
-    }
+    });
   }
 
   findAll(filters: {
@@ -134,19 +145,23 @@ export class EnrollmentsService {
   }
 
   async update(id: string, dto: UpdateEnrollmentDto) {
-    await this.findById(id);
-    const enrollment = await this.prisma.enrollment.update({
-      where: { id },
-      data: dto,
-      include: includeProfiles,
+    return this.prisma.$transaction(async (tx) => {
+      const enrollment = await tx.enrollment.update({
+        where: { id },
+        data: dto,
+        include: includeProfiles,
+      });
+      await this.audit.record(
+        {
+          action: 'enrollment.updated',
+          entityType: 'Enrollment',
+          entityId: id,
+          details: { ...dto },
+        },
+        tx,
+      );
+      return enrollment;
     });
-    this.audit.log({
-      action: 'enrollment.updated',
-      entityType: 'Enrollment',
-      entityId: id,
-      details: { ...dto },
-    });
-    return enrollment;
   }
 
   private findTeacherProfile(userId: string) {

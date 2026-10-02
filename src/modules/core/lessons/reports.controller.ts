@@ -34,16 +34,22 @@ export class ReportsController {
     return this.reportsService.submit(lessonId);
   }
 
-  @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER)
+  @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER, Role.STUDENT)
   @Get()
   async findByLessonId(
     @Req() req: Express.Request,
     @Param('lessonId') lessonId: string,
   ) {
-    if (!this.isStaff(req.user!)) {
-      await this.assertTeacherOwns(req.user!.id, lessonId);
-    }
-    return this.reportsService.findByLessonId(lessonId);
+    const user = req.user!;
+    await this.lessonsService.assertUserCanView(lessonId, user);
+    const hasStaffOrTeacherAccess = user.roles.some(
+      (role) =>
+        role === Role.ADMIN || role === Role.MANAGER || role === Role.TEACHER,
+    );
+    return this.reportsService.findByLessonId(
+      lessonId,
+      user.roles.includes(Role.STUDENT) && !hasStaffOrTeacherAccess,
+    );
   }
 
   @Roles(Role.TEACHER)
@@ -55,10 +61,6 @@ export class ReportsController {
   ) {
     await this.assertTeacherOwns(req.user!.id, lessonId);
     return this.reportsService.update(lessonId, dto);
-  }
-
-  private isStaff(user: { roles: Role[] }) {
-    return user.roles.includes(Role.ADMIN) || user.roles.includes(Role.MANAGER);
   }
 
   private assertTeacherOwns(userId: string, lessonId: string) {

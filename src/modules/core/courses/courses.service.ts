@@ -18,14 +18,19 @@ export class CoursesService {
 
   async create(dto: CreateCourseDto) {
     try {
-      const course = await this.prisma.course.create({ data: dto });
-      this.audit.log({
-        action: 'course.created',
-        entityType: 'Course',
-        entityId: course.id,
-        details: { name: course.name },
+      return await this.prisma.$transaction(async (tx) => {
+        const course = await tx.course.create({ data: dto });
+        await this.audit.record(
+          {
+            action: 'course.created',
+            entityType: 'Course',
+            entityId: course.id,
+            details: { name: course.name },
+          },
+          tx,
+        );
+        return course;
       });
-      return course;
     } catch (e) {
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&
@@ -53,19 +58,25 @@ export class CoursesService {
   }
 
   async update(id: string, dto: UpdateCourseDto) {
-    await this.findById(id);
     try {
-      const course = await this.prisma.course.update({
-        where: { id },
-        data: dto,
+      return await this.prisma.$transaction(async (tx) => {
+        const existing = await tx.course.findUnique({ where: { id } });
+        if (!existing) throw new NotFoundException('Course not found');
+        const course = await tx.course.update({
+          where: { id },
+          data: dto,
+        });
+        await this.audit.record(
+          {
+            action: 'course.updated',
+            entityType: 'Course',
+            entityId: id,
+            details: { ...dto },
+          },
+          tx,
+        );
+        return course;
       });
-      this.audit.log({
-        action: 'course.updated',
-        entityType: 'Course',
-        entityId: id,
-        details: { ...dto },
-      });
-      return course;
     } catch (e) {
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&

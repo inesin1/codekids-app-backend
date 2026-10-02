@@ -34,35 +34,40 @@ export class MaterialsService {
     },
     reportId?: string,
   ) {
-    if (reportId) {
-      const report = await this.prisma.lessonReport.findFirst({
-        where: { id: reportId, lessonId },
-        select: { id: true },
-      });
-      if (!report) {
-        throw new BadRequestException('Report does not belong to lesson');
+    return this.prisma.$transaction(async (tx) => {
+      if (reportId) {
+        const report = await tx.lessonReport.findFirst({
+          where: { id: reportId, lessonId },
+          select: { id: true },
+        });
+        if (!report) {
+          throw new BadRequestException('Report does not belong to lesson');
+        }
       }
-    }
 
-    const material = await this.prisma.material.create({
-      data: {
-        lessonId,
-        reportId,
-        title: file.name,
-        fileType: file.type,
-        fileSize: file.size,
-        fileData: file.data,
-      },
-      select: materialSelect,
+      const material = await tx.material.create({
+        data: {
+          lessonId,
+          reportId,
+          title: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+          fileData: file.data,
+        },
+        select: materialSelect,
+      });
+      await this.audit.record(
+        {
+          action: 'material.created',
+          entityType: 'Material',
+          entityId: material.id,
+          details: { lessonId },
+        },
+        tx,
+      );
+      if (!reportId) await this.notifier.materialAdded(material.id, tx);
+      return material;
     });
-    this.audit.log({
-      action: 'material.created',
-      entityType: 'Material',
-      entityId: material.id,
-      details: { lessonId },
-    });
-    if (!reportId) this.notifier.materialAdded(material.id);
-    return material;
   }
 
   findByLessonId(lessonId: string) {
@@ -90,31 +95,27 @@ export class MaterialsService {
     };
   }
 
-  async getLessonId(id: string): Promise<string | null> {
-    const material = await this.prisma.material.findUnique({
-      where: { id },
+  async remove(id: string, lessonId: string) {
+    const material = await this.prisma.material.findFirst({
+      where: { id, lessonId },
       select: { lessonId: true },
     });
     if (!material) throw new NotFoundException('Material not found');
-    return material.lessonId;
-  }
-
-  async remove(id: string) {
-    const material = await this.prisma.material.findUnique({
-      where: { id },
-      select: { lessonId: true },
+    return this.prisma.$transaction(async (tx) => {
+      const deleted = await tx.material.delete({
+        where: { id, lessonId },
+        select: materialSelect,
+      });
+      await this.audit.record(
+        {
+          action: 'material.deleted',
+          entityType: 'Material',
+          entityId: id,
+          details: { lessonId },
+        },
+        tx,
+      );
+      return deleted;
     });
-    if (!material) throw new NotFoundException('Material not found');
-    const deleted = await this.prisma.material.delete({
-      where: { id },
-      select: materialSelect,
-    });
-    this.audit.log({
-      action: 'material.deleted',
-      entityType: 'Material',
-      entityId: id,
-      details: { lessonId: material.lessonId },
-    });
-    return deleted;
   }
 }
