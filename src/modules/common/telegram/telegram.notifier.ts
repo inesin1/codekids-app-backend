@@ -22,6 +22,7 @@ import {
   money,
 } from './telegram.format';
 import { TelegramService } from './telegram.service';
+import { BUSINESS_TIMEZONE } from '../business-time';
 
 const lessonContext = {
   student: { include: { user: true, telegramGroup: true } },
@@ -64,8 +65,6 @@ const BIRTHDAY_REMINDERS = [
     title: '🎉 <b>Сегодня день рождения</b>',
   },
 ] as const;
-
-const MOSCOW_TIME_ZONE = 'Europe/Moscow';
 
 type LessonHeader = {
   scheduledAt: Date;
@@ -364,9 +363,9 @@ export class TelegramNotifier {
   }
 
   /** Отправляет сотрудникам напоминания о днях рождения учеников. */
-  @Cron('0 9 * * *', { timeZone: MOSCOW_TIME_ZONE })
+  @Cron('0 9 * * *', { timeZone: BUSINESS_TIMEZONE })
   async sendBirthdayReminders() {
-    const today = DateTime.now().setZone(MOSCOW_TIME_ZONE).startOf('day');
+    const today = DateTime.now().setZone(BUSINESS_TIMEZONE).startOf('day');
     const students = await this.prisma.studentProfile.findMany({
       where: { user: { isActive: true, birthDate: { not: null } } },
       select: {

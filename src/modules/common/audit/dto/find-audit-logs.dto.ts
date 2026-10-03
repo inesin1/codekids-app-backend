@@ -1,13 +1,8 @@
-import {
-  IsDateString,
-  IsInt,
-  IsOptional,
-  IsString,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsDateString, IsOptional, IsString } from 'class-validator';
+import { PaginationQueryDto } from '../../pagination';
+import { IsDateRangeOrdered } from '../../validation/is-date-range-ordered';
 
-export class FindAuditLogsDto {
+export class FindAuditLogsDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   userId?: string;
@@ -30,16 +25,6 @@ export class FindAuditLogsDto {
 
   @IsOptional()
   @IsDateString()
+  @IsDateRangeOrdered('from')
   to?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(200)
-  take?: number = 50;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  skip?: number = 0;
 }

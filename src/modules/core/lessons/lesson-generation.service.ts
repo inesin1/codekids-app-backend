@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { DateTime } from 'luxon';
 import { DayOfWeek } from '../../../generated/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { LessonsService } from './lessons.service';
 import { UpdateGenerationSettingsDto } from './dto/update-generation-settings.dto';
+import { BUSINESS_TIMEZONE } from '../../common/business-time';
 
 const SETTINGS_ID = 'singleton';
 
@@ -59,24 +61,20 @@ export class LessonGenerationService {
 
   // Ежедневно проверяем настройки; генерим только в выбранный день недели
   /** Запускает генерацию занятий в настроенный день недели (ежедневный cron). */
-  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  @Cron(CronExpression.EVERY_DAY_AT_3AM, { timeZone: BUSINESS_TIMEZONE })
   async runScheduled() {
     const settings = await this.getSettings();
     if (!settings.enabled) return;
 
-    const now = new Date();
-    if (WEEKDAY[now.getDay()] !== settings.triggerDay) return;
+    const today = DateTime.now().setZone(BUSINESS_TIMEZONE);
+    if (WEEKDAY[today.weekday % 7] !== settings.triggerDay) return;
 
-    const dateFrom = new Date(now);
-    dateFrom.setHours(0, 0, 0, 0);
-
-    const dateTo = new Date(dateFrom);
-    dateTo.setDate(dateTo.getDate() + settings.daysAhead);
-    dateTo.setHours(23, 59, 59, 999);
+    const dateFrom = today.startOf('day');
+    const dateTo = dateFrom.plus({ days: settings.daysAhead }).endOf('day');
 
     const { count } = await this.lessonsService.generate({
-      dateFrom: dateFrom.toISOString(),
-      dateTo: dateTo.toISOString(),
+      dateFrom: dateFrom.toUTC().toISO()!,
+      dateTo: dateTo.toUTC().toISO()!,
     });
     this.logger.log(
       `Автогенерация занятий: создано ${count} (${settings.daysAhead} дн. вперёд)`,

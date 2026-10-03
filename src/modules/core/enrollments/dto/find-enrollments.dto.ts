@@ -1,7 +1,8 @@
 import { IsBoolean, IsOptional, IsString } from 'class-validator';
 import { ToBoolean } from '../../../common/validation/transforms';
+import { PaginationQueryDto } from '../../../common/pagination';
 
-export class FindEnrollmentsDto {
+export class FindEnrollmentsDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   teacherId?: string;

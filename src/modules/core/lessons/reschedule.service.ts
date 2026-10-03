@@ -20,6 +20,7 @@ import { TelegramService } from '../../common/telegram/telegram.service';
 import { UsersService } from '../users/users.service';
 import { LessonsService } from './lessons.service';
 import { CreateRescheduleRequestDto } from './dto/create-reschedule-request.dto';
+import { paginated, paginationArgs } from '../../common/pagination';
 
 type Actor = { id: string; roles: Role[] };
 
@@ -143,7 +144,12 @@ export class RescheduleService implements OnModuleInit {
   }
 
   findAll(
-    filters: { status?: RescheduleRequestStatus; lessonId?: string },
+    filters: {
+      status?: RescheduleRequestStatus;
+      lessonId?: string;
+      page: number;
+      limit: number;
+    },
     actor: Actor,
   ) {
     const isStaff =
@@ -156,20 +162,30 @@ export class RescheduleService implements OnModuleInit {
           ? { studentId: actor.id }
           : null;
     if (lessonScope === null) throw new ForbiddenException();
-
-    return this.prisma.rescheduleRequest.findMany({
-      where: {
+    const where: Prisma.RescheduleRequestWhereInput = {
+      status: filters.status,
+      lessonId: filters.lessonId,
+      ...(lessonScope && { lesson: { is: lessonScope } }),
+    };
+    const include = {
+      lesson: true,
+      createdBy: { omit: { password: true } },
+      resolvedBy: { omit: { password: true } },
+    };
+    return Promise.all([
+      this.prisma.rescheduleRequest.findMany({
+        where,
+        include,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        ...paginationArgs(filters),
+      }),
+      this.prisma.rescheduleRequest.count({ where }),
+    ]).then(([data, total]) =>
+      paginated(data, total, filters, '/api/reschedule-requests', {
         status: filters.status,
         lessonId: filters.lessonId,
-        ...(lessonScope && { lesson: { is: lessonScope } }),
-      },
-      include: {
-        lesson: true,
-        createdBy: { omit: { password: true } },
-        resolvedBy: { omit: { password: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+      }),
+    );
   }
 
   async approve(requestId: string, actor: Actor) {

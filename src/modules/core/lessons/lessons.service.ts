@@ -6,6 +6,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DateTime } from 'luxon';
+import { businessDayBounds } from '../../common/business-time';
+import { paginated, paginationArgs } from '../../common/pagination';
 import {
   Prisma,
   LessonStatus,
@@ -231,11 +233,13 @@ export class LessonsService {
 
   async findAll(
     filters: {
-      dateFrom?: string;
-      dateTo?: string;
+      dateFrom: string;
+      dateTo: string;
       status?: LessonStatus;
       teacherId?: string;
       studentId?: string;
+      page: number;
+      limit: number;
     },
     scope?: {
       teacherUserId?: string;
@@ -243,33 +247,39 @@ export class LessonsService {
       hideInternalNotes?: boolean;
     },
   ) {
-    const where: Prisma.LessonWhereInput = {};
-
-    if (filters.status) where.status = filters.status;
-    if (filters.teacherId) where.teacherId = filters.teacherId;
-    if (filters.studentId) where.studentId = filters.studentId;
-    if (filters.dateFrom || filters.dateTo) {
-      where.scheduledAt = {
-        ...(filters.dateFrom && { gte: new Date(filters.dateFrom) }),
-        ...(filters.dateTo && { lte: new Date(filters.dateTo) }),
-      };
+    let scheduledAt: { gte: Date; lte: Date };
+    try {
+      scheduledAt = businessDayBounds(filters.dateFrom, filters.dateTo);
+    } catch {
+      throw new BadRequestException('date range must cover at most 93 days');
     }
-
-    // Role-based scope
-    if (scope?.teacherUserId) {
-      where.teacherId = scope.teacherUserId;
-    } else if (scope?.studentUserId) {
-      where.studentId = scope.studentUserId;
-    }
-
-    const lessons = await this.prisma.lesson.findMany({
-      where,
-      include: lessonInclude,
-      orderBy: { scheduledAt: 'asc' },
-    });
-    return scope?.hideInternalNotes
+    const where: Prisma.LessonWhereInput = {
+      scheduledAt,
+      ...(filters.status && { status: filters.status }),
+      ...(filters.teacherId && { teacherId: filters.teacherId }),
+      ...(filters.studentId && { studentId: filters.studentId }),
+      ...(scope?.teacherUserId && { teacherId: scope.teacherUserId }),
+      ...(scope?.studentUserId && { studentId: scope.studentUserId }),
+    };
+    const [lessons, total] = await Promise.all([
+      this.prisma.lesson.findMany({
+        where,
+        include: lessonInclude,
+        orderBy: [{ scheduledAt: 'asc' }, { id: 'asc' }],
+        ...paginationArgs(filters),
+      }),
+      this.prisma.lesson.count({ where }),
+    ]);
+    const data = scope?.hideInternalNotes
       ? lessons.map((lesson) => this.withoutInternalNotes(lesson))
       : lessons;
+    return paginated(data, total, filters, '/api/lessons', {
+      dateFrom: filters.dateFrom,
+      dateTo: filters.dateTo,
+      status: filters.status,
+      teacherId: filters.teacherId,
+      studentId: filters.studentId,
+    });
   }
 
   async findById(

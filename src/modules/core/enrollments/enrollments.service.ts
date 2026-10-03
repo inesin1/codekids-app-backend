@@ -9,6 +9,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
 import { UpdateEnrollmentDto } from './dto/update-enrollment.dto';
+import { paginated, paginationArgs } from '../../common/pagination';
 
 const includeProfiles = {
   teacher: { include: { user: { omit: { password: true } } } },
@@ -121,16 +122,31 @@ export class EnrollmentsService {
     studentId?: string;
     courseId?: string;
     isActive?: boolean;
+    page: number;
+    limit: number;
   }) {
-    return this.prisma.enrollment.findMany({
-      where: {
+    const where = {
+      teacherId: filters.teacherId,
+      studentId: filters.studentId,
+      courseId: filters.courseId,
+      isActive: filters.isActive,
+    };
+    return Promise.all([
+      this.prisma.enrollment.findMany({
+        where,
+        include: includeProfiles,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        ...paginationArgs(filters),
+      }),
+      this.prisma.enrollment.count({ where }),
+    ]).then(([data, total]) =>
+      paginated(data, total, filters, '/api/enrollments', {
         teacherId: filters.teacherId,
         studentId: filters.studentId,
         courseId: filters.courseId,
         isActive: filters.isActive,
-      },
-      include: includeProfiles,
-    });
+      }),
+    );
   }
 
   async findById(id: string) {

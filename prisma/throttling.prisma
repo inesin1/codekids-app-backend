@@ -1,0 +1,9 @@
+model RateLimitBucket {
+  key          String   @id
+  totalHits    Int
+  expiresAt    DateTime @db.Timestamptz(6)
+  blockedUntil DateTime? @db.Timestamptz(6)
+
+  @@index([expiresAt])
+  @@map("rate_limit_buckets")
+}

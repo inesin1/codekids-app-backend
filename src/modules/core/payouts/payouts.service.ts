@@ -11,6 +11,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { TelegramNotifier } from '../../common/telegram/telegram.notifier';
 import { CalculatePayoutDto } from './dto/calculate-payout.dto';
 import { CalculateAllPayoutsDto } from './dto/calculate-all-payouts.dto';
+import { paginated, paginationArgs } from '../../common/pagination';
 
 const payoutInclude = {
   teacher: { include: { user: { omit: { password: true } } } },
@@ -201,6 +202,8 @@ export class PayoutsService {
       status?: PayoutStatus;
       periodStart?: string;
       periodEnd?: string;
+      page: number;
+      limit: number;
     },
     scope?: { teacherUserId: string },
   ) {
@@ -219,10 +222,20 @@ export class PayoutsService {
       where.teacherId = scope.teacherUserId;
     }
 
-    return this.prisma.payout.findMany({
-      where,
-      include: payoutInclude,
-      orderBy: { periodStart: 'desc' },
+    const [data, total] = await Promise.all([
+      this.prisma.payout.findMany({
+        where,
+        include: payoutInclude,
+        orderBy: [{ periodStart: 'desc' }, { id: 'desc' }],
+        ...paginationArgs(filters),
+      }),
+      this.prisma.payout.count({ where }),
+    ]);
+    return paginated(data, total, filters, '/api/payouts', {
+      teacherId: filters.teacherId,
+      status: filters.status,
+      periodStart: filters.periodStart,
+      periodEnd: filters.periodEnd,
     });
   }
 

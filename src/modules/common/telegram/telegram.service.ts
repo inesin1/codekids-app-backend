@@ -125,6 +125,11 @@ export class TelegramService
     return !!this.bot;
   }
 
+  get readiness() {
+    if (!this.bot) return 'disabled';
+    return this.bot.isInited() ? 'ready_optional' : 'degraded_optional';
+  }
+
   get api(): TelegramApiAdapter | undefined {
     return this.apiOverride ?? this.bot?.api;
   }

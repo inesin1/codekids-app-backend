@@ -10,6 +10,7 @@ describe('UsersService student access', () => {
     user: {
       create: jest.Mock;
       findMany: jest.Mock;
+      count: jest.Mock;
       findUnique: jest.Mock;
       update: jest.Mock;
     };
@@ -65,6 +66,7 @@ describe('UsersService student access', () => {
           },
         }),
         findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
         findUnique: jest.fn(),
         update: jest.fn(),
       },
@@ -187,5 +189,26 @@ describe('UsersService student access', () => {
     });
     const staffProjection = staffArgs.include.studentProfile.select;
     expect(staffProjection.balance).toBe(true);
+  });
+
+  it('returns bounded user pages with stable last-name ordering', async () => {
+    prisma.user.count.mockResolvedValue(21);
+    const result = await service.findAll({ page: 2, limit: 20 });
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skip: 20,
+        take: 20,
+        orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }, { id: 'asc' }],
+      }),
+    );
+    expect(result).toMatchObject({
+      data: [],
+      meta: { itemsPerPage: 20, totalItems: 21, currentPage: 2, totalPages: 2 },
+      links: {
+        current: '/api/users?page=2&limit=20',
+        next: '',
+        last: '/api/users?page=2&limit=20',
+      },
+    });
   });
 });

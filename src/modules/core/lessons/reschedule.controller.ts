@@ -1,8 +1,9 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
-import { RescheduleRequestStatus, Role } from '../../../generated/client';
+import { Role } from '../../../generated/client';
 import { Roles } from '../../common/auth/decorators/roles.decorator';
 import { RescheduleService } from './reschedule.service';
 import { CreateRescheduleRequestDto } from './dto/create-reschedule-request.dto';
+import { FindRescheduleRequestsDto } from './dto/find-reschedule-requests.dto';
 
 @Controller()
 export class RescheduleController {
@@ -22,10 +23,9 @@ export class RescheduleController {
   @Get('reschedule-requests')
   findAll(
     @Req() req: Express.Request,
-    @Query('status') status?: RescheduleRequestStatus,
-    @Query('lessonId') lessonId?: string,
+    @Query() query: FindRescheduleRequestsDto,
   ) {
-    return this.rescheduleService.findAll({ status, lessonId }, req.user!);
+    return this.rescheduleService.findAll(query, req.user!);
   }
 
   @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER, Role.STUDENT)

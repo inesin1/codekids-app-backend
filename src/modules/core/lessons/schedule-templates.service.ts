@@ -8,11 +8,22 @@ import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateScheduleTemplateDto } from './dto/create-schedule-template.dto';
 import { UpdateScheduleTemplateDto } from './dto/update-schedule-template.dto';
+import { paginated, paginationArgs } from '../../common/pagination';
 
 const scheduleTemplateInclude: Prisma.ScheduleTemplateInclude = {
   slots: { orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }] },
-  teacher: { include: { user: true } },
-  student: { select: { userId: true, user: true } },
+  teacher: {
+    select: {
+      userId: true,
+      user: { select: { id: true, firstName: true, lastName: true } },
+    },
+  },
+  student: {
+    select: {
+      userId: true,
+      user: { select: { id: true, firstName: true, lastName: true } },
+    },
+  },
 };
 
 @Injectable()
@@ -83,18 +94,33 @@ export class ScheduleTemplatesService {
     studentId?: string;
     dayOfWeek?: DayOfWeek;
     isActive?: boolean;
+    page: number;
+    limit: number;
   }) {
-    return this.prisma.scheduleTemplate.findMany({
-      where: {
+    const where: Prisma.ScheduleTemplateWhereInput = {
+      teacherId: filters.teacherId,
+      studentId: filters.studentId,
+      isActive: filters.isActive ?? true,
+      ...(filters.dayOfWeek && {
+        slots: { some: { dayOfWeek: filters.dayOfWeek } },
+      }),
+    };
+    return Promise.all([
+      this.prisma.scheduleTemplate.findMany({
+        where,
+        include: scheduleTemplateInclude,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        ...paginationArgs(filters),
+      }),
+      this.prisma.scheduleTemplate.count({ where }),
+    ]).then(([data, total]) =>
+      paginated(data, total, filters, '/api/schedule-templates', {
         teacherId: filters.teacherId,
         studentId: filters.studentId,
-        isActive: filters.isActive ?? true,
-        ...(filters.dayOfWeek && {
-          slots: { some: { dayOfWeek: filters.dayOfWeek } },
-        }),
-      },
-      include: scheduleTemplateInclude,
-    });
+        dayOfWeek: filters.dayOfWeek,
+        isActive: filters.isActive,
+      }),
+    );
   }
 
   async findById(id: string) {

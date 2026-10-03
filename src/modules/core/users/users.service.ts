@@ -18,6 +18,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import { ContactDto } from './dto/contact.dto';
+import { paginated, paginationArgs } from '../../common/pagination';
 
 @Injectable()
 export class UsersService {
@@ -230,12 +231,32 @@ export class UsersService {
     return UsersService.withRoles(user);
   }
 
-  async findAll(role?: Role) {
-    const users = await this.prisma.user.findMany({
-      where: role ? this.roleFilter(role) : undefined,
-      include: UsersService.profileExists,
-    });
-    return users.map((user) => UsersService.withRoles(user));
+  async findAll(query: {
+    role?: Role;
+    roles?: Role[];
+    page: number;
+    limit: number;
+  }) {
+    const roles = query.roles ?? (query.role ? [query.role] : []);
+    const where: Prisma.UserWhereInput = roles.length
+      ? { OR: roles.map((role) => this.roleFilter(role)) }
+      : {};
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        include: UsersService.profileExists,
+        orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }, { id: 'asc' }],
+        ...paginationArgs(query),
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+    return paginated(
+      users.map((user) => UsersService.withRoles(user)),
+      total,
+      query,
+      '/api/users',
+      { role: query.role, roles: query.roles?.join(',') },
+    );
   }
 
   private roleFilter(role: Role): Prisma.UserWhereInput {
@@ -245,50 +266,76 @@ export class UsersService {
   }
 
   async findAllStudents(query: ListStudentsQueryDto, hideBalance = false) {
-    const students = await this.prisma.user.findMany({
-      where: {
-        ...this.searchFilter(query.q),
-        ...(query.isActive != null && { isActive: query.isActive }),
-        studentProfile: query.teacherId
-          ? {
+    const where: Prisma.UserWhereInput = {
+      ...this.searchFilter(query.q),
+      ...(query.isActive != null && { isActive: query.isActive }),
+      studentProfile: query.teacherId
+        ? {
+            enrollments: {
+              some: { teacherId: query.teacherId, isActive: true },
+            },
+          }
+        : { isNot: null },
+    };
+    const [students, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        include: {
+          teacherProfile: { select: { userId: true } },
+          studentProfile: {
+            select: {
+              userId: true,
+              parentName: true,
+              parentContacts: true,
+              createdAt: true,
+              updatedAt: true,
+              telegramGroup: { select: { isActive: true } },
               enrollments: {
-                some: { teacherId: query.teacherId, isActive: true },
+                where: { isActive: true },
+                select: { course: { select: { name: true } } },
               },
-            }
-          : { isNot: null },
-      },
-      include: {
-        teacherProfile: { select: { userId: true } },
-        studentProfile: {
-          select: {
-            userId: true,
-            parentName: true,
-            parentContacts: true,
-            createdAt: true,
-            updatedAt: true,
-            telegramGroup: { select: { isActive: true } },
-            ...(!hideBalance && { balance: true }),
+              ...(!hideBalance && { balance: true }),
+            },
           },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    return students.map((student) =>
-      UsersService.withRoles(this.withStudentAge(student)),
+        orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }, { id: 'asc' }],
+        ...paginationArgs(query),
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+    return paginated(
+      students.map((student) =>
+        UsersService.withRoles(this.withStudentAge(student)),
+      ),
+      total,
+      query,
+      '/api/users/students',
+      { q: query.q, isActive: query.isActive, teacherId: query.teacherId },
     );
   }
 
   async findAllTeachers(query: ListUsersQueryDto) {
-    const teachers = await this.prisma.user.findMany({
-      where: {
-        teacherProfile: { isNot: null },
-        ...this.searchFilter(query.q),
-        ...(query.isActive != null && { isActive: query.isActive }),
-      },
-      include: UsersService.profileExists,
-      orderBy: { createdAt: 'desc' },
-    });
-    return teachers.map((user) => UsersService.withRoles(user));
+    const where: Prisma.UserWhereInput = {
+      teacherProfile: { isNot: null },
+      ...this.searchFilter(query.q),
+      ...(query.isActive != null && { isActive: query.isActive }),
+    };
+    const [teachers, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        include: UsersService.profileExists,
+        orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }, { id: 'asc' }],
+        ...paginationArgs(query),
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+    return paginated(
+      teachers.map((teacher) => UsersService.withRoles(teacher)),
+      total,
+      query,
+      '/api/users/teachers',
+      { q: query.q, isActive: query.isActive },
+    );
   }
 
   private searchFilter(q?: string): Prisma.UserWhereInput {

@@ -4,6 +4,7 @@ import { CLS_REQ, ClsService } from 'nestjs-cls';
 import { Prisma } from '../../../generated/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { FindAuditLogsDto } from './dto/find-audit-logs.dto';
+import { paginated, paginationArgs } from '../pagination';
 
 type AuditEntry = {
   action: string;
@@ -56,24 +57,35 @@ export class AuditService {
   }
 
   /** Возвращает записи журнала аудита по заданным фильтрам. */
-  findAll(query: FindAuditLogsDto) {
-    return this.prisma.auditLog.findMany({
-      where: {
-        userId: query.userId,
-        action: query.action,
-        entityType: query.entityType,
-        entityId: query.entityId,
-        ...((query.from || query.to) && {
-          createdAt: {
-            ...(query.from && { gte: new Date(query.from) }),
-            ...(query.to && { lte: new Date(query.to) }),
-          },
-        }),
-      },
-      include: { user: { omit: { password: true } } },
-      orderBy: { createdAt: 'desc' },
-      take: query.take,
-      skip: query.skip,
+  async findAll(query: FindAuditLogsDto) {
+    const where = {
+      userId: query.userId,
+      action: query.action,
+      entityType: query.entityType,
+      entityId: query.entityId,
+      ...((query.from || query.to) && {
+        createdAt: {
+          ...(query.from && { gte: new Date(query.from) }),
+          ...(query.to && { lte: new Date(query.to) }),
+        },
+      }),
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where,
+        include: { user: { omit: { password: true } } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        ...paginationArgs(query),
+      }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+    return paginated(data, total, query, '/api/audit-logs', {
+      userId: query.userId,
+      action: query.action,
+      entityType: query.entityType,
+      entityId: query.entityId,
+      from: query.from,
+      to: query.to,
     });
   }
 }

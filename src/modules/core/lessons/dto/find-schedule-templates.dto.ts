@@ -1,8 +1,9 @@
 import { IsBoolean, IsEnum, IsOptional, IsString } from 'class-validator';
 import { DayOfWeek } from '../../../../generated/client';
 import { ToBoolean } from '../../../common/validation/transforms';
+import { PaginationQueryDto } from '../../../common/pagination';
 
-export class FindScheduleTemplatesDto {
+export class FindScheduleTemplatesDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   teacherId?: string;

@@ -5,7 +5,6 @@ import {
   ForbiddenException,
   Get,
   Param,
-  ParseEnumPipe,
   Patch,
   Post,
   Query,
@@ -19,6 +18,7 @@ import { CreateStudentDto } from './dto/create-student.dto';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import {
+  FindUsersQueryDto,
   ListStudentsQueryDto,
   ListUsersQueryDto,
 } from './dto/list-users-query.dto';
@@ -47,10 +47,8 @@ export class UsersController {
 
   @Roles(Role.ADMIN, Role.MANAGER)
   @Get()
-  findAll(
-    @Query('role', new ParseEnumPipe(Role, { optional: true })) role?: Role,
-  ) {
-    return this.usersService.findAll(role);
+  findAll(@Query() query: FindUsersQueryDto) {
+    return this.usersService.findAll(query);
   }
 
   @Roles(Role.ADMIN, Role.MANAGER, Role.TEACHER)

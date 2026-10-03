@@ -15,12 +15,23 @@ import { ValidationModule } from './modules/common/validation/validation.module'
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { SentryGlobalFilter, SentryModule } from '@sentry/nestjs/setup';
+import { ThrottlingModule } from './modules/common/throttling/throttling.module';
+import { PostgresThrottlerStorage } from './modules/common/throttling/postgres-throttler.storage';
+import { TelegramModule } from './modules/common/telegram/telegram.module';
 
 const commonModules = [
   SentryModule.forRoot(),
   ConfigModule.forRoot({ isGlobal: true }),
   ScheduleModule.forRoot(),
-  ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+  ThrottlingModule,
+  ThrottlerModule.forRootAsync({
+    imports: [ThrottlingModule],
+    inject: [PostgresThrottlerStorage],
+    useFactory: (storage: PostgresThrottlerStorage) => ({
+      throttlers: [{ ttl: 60_000, limit: 100 }],
+      storage,
+    }),
+  }),
   // saveReq: guard проставляет request.user после middleware,
   // поэтому AuditService читает актора из запроса в момент записи
   ClsModule.forRoot({
@@ -29,6 +40,7 @@ const commonModules = [
   }),
   AuthModule,
   PrismaModule,
+  TelegramModule,
   AuditModule,
   ValidationModule.forRoot({
     transform: true,

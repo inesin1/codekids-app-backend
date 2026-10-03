@@ -37,7 +37,7 @@ trap cleanup EXIT
 migrations_path="$backend_root/prisma/migrations"
 integration_mode="${1:---current}"
 case "$integration_mode" in
-  --current) ;;
+  --current|--stage5) ;;
   --historical|--legacy-fixture|--upgrade|--ambiguous-upgrade|--inconsistent-enrollment-upgrade)
     baseline_migration='20260921130000_user_birth_dates'
     temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/codekids-integration.XXXXXX")"
@@ -57,7 +57,7 @@ case "$integration_mode" in
     migrations_path="$temp_dir/migrations"
     ;;
   *)
-    echo 'Usage: test:integration [--current|--historical|--legacy-fixture|--upgrade|--ambiguous-upgrade|--inconsistent-enrollment-upgrade]' >&2
+    echo 'Usage: test:integration [--current|--stage5|--historical|--legacy-fixture|--upgrade|--ambiguous-upgrade|--inconsistent-enrollment-upgrade]' >&2
     exit 2
     ;;
 esac
@@ -152,9 +152,14 @@ if [[ "$integration_mode" != '--ambiguous-upgrade' ]]; then
   docker exec -i "$container_id" psql --set=ON_ERROR_STOP=1 --username="$db_user" --dbname="$db_name" < test/fixtures/postgres-smoke.sql
 fi
 
-if [[ "$integration_mode" == '--current' || "$integration_mode" == '--upgrade' ]]; then
+if [[ "$integration_mode" == '--current' || "$integration_mode" == '--stage5' || "$integration_mode" == '--upgrade' ]]; then
   ./node_modules/.bin/prisma migrate diff --config ./test/prisma.integration.config.ts \
     --from-config-datasource --to-schema ./prisma --exit-code
+fi
+
+if [[ "$integration_mode" == '--stage5' ]]; then
+  ./node_modules/.bin/prisma generate --config ./test/prisma.integration.config.ts
+  NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--experimental-vm-modules" ./node_modules/.bin/jest --config ./test/jest-integration.json --runInBand --runTestsByPath test/integration/throttler-storage.integration.spec.ts
 fi
 
 if [[ "$integration_mode" == '--current' || "$integration_mode" == '--upgrade' ]] && [[ -d test/integration ]] && find test/integration -type f -name '*.integration.spec.ts' -print -quit | grep -q .; then

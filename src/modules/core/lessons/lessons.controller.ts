@@ -10,7 +10,7 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import { LessonStatus, Role } from '../../../generated/client';
+import { Role } from '../../../generated/client';
 import { Roles } from '../../common/auth/decorators/roles.decorator';
 import { LessonsService } from './lessons.service';
 import { LessonGenerationService } from './lesson-generation.service';
@@ -19,6 +19,7 @@ import { UpdateLessonDto } from './dto/update-lesson.dto';
 import { GenerateLessonsDto } from './dto/generate-lessons.dto';
 import { UpdateGenerationSettingsDto } from './dto/update-generation-settings.dto';
 import { RescheduleLessonDto } from './dto/reschedule-lesson.dto';
+import { FindLessonsDto } from './dto/find-lessons.dto';
 
 @Controller('lessons')
 export class LessonsController {
@@ -54,19 +55,9 @@ export class LessonsController {
   }
 
   @Get()
-  findAll(
-    @Req() req: Express.Request,
-    @Query('dateFrom') dateFrom?: string,
-    @Query('dateTo') dateTo?: string,
-    @Query('status') status?: LessonStatus,
-    @Query('teacherId') teacherId?: string,
-    @Query('studentId') studentId?: string,
-  ) {
+  findAll(@Req() req: Express.Request, @Query() query: FindLessonsDto) {
     const scope = this.resolveScope(req.user!);
-    return this.lessonsService.findAll(
-      { dateFrom, dateTo, status, teacherId, studentId },
-      scope,
-    );
+    return this.lessonsService.findAll(query, scope);
   }
 
   @Get(':id')
