@@ -19,11 +19,11 @@ CRM для школы допобразования (кружки/курсы дл
 - **PostgreSQL** (прод — Neon)
 - **JWT** (`@nestjs/jwt`) — access-токен в payload, refresh-токен ротируется и хранится в БД (хэш sha256, таблица `refresh_tokens`)
 - **nestjs-cls** — request-scoped контекст, используется `AuditService` чтобы достать актора без прокидывания через каждый слой
-- **@nestjs/schedule** — крон автогенерации занятий по расписанию (`EVERY_DAY_AT_3AM`)
-- **@nestjs/throttler** — rate limit (глобально 100 req/min, `/auth/login` — 5/min, `/auth/refresh` — 10/min)
+- **@nestjs/schedule** — cron генерации занятий и Telegram-событий в бизнес-зоне
+- **@nestjs/throttler** — общий лимит PostgreSQL: 100 req/min, `/auth/login` — 5/min, `/auth/refresh` — 10/min
 - **@sentry/nestjs** — мониторинг ошибок
 - **class-validator / class-transformer** — валидация DTO
-- **Jest + ts-jest** — юнит-тесты (минимальный набор на критичную логику: auth, генерация занятий, начисления)
+- **Jest + ts-jest** — unit-тесты и PostgreSQL integration-тесты критичных бизнес-сценариев
 
 ## Локальный запуск
 
@@ -51,6 +51,12 @@ JWT_REFRESH_TTL="30d"
 BONUS_AMOUNT="50"          # премия преподавателю за отчёт по занятию, отправленный вовремя
 BONUS_WINDOW_HOURS="24"    # окно, в течение которого отчёт считается «быстрым»
 SENTRY_DSN=                # пусто локально — Sentry молчит и не шлёт dev-ошибки в прод-проект
+BUSINESS_TIMEZONE=Europe/Moscow # бизнес-дни и cron; зона расписания остаётся у шаблона
+TRUSTED_PROXIES=           # доверенные IP/CIDR через запятую; пусто, если прокси нет
+TELEGRAM_BOT_TOKEN=        # необязателен локально
+TELEGRAM_WEBHOOK_URL=      # production webhook; при пустом URL локально используется polling
+TELEGRAM_WEBHOOK_SECRET=   # обязателен вместе с webhook URL
+APP_URL=                   # ссылка на кабинет в Telegram-сообщениях
 ```
 
 ### Миграции и генерация клиента
@@ -61,9 +67,14 @@ pnpm exec prisma migrate dev    # прогнать миграции локаль
 pnpm exec prisma db seed        # прогнать prisma/seed.ts (использует tsx, настроено в prisma.config.ts)
 ```
 
-Схема Prisma разбита на несколько файлов в `prisma/` (`user.prisma`, `course.prisma`,
-`lesson.prisma`, `payment.prisma`, `audit.prisma`, `telegram.prisma`) — это multi-file schema
-Prisma 7, `prisma/schema.prisma` содержит только `generator`/`datasource`.
+Seed идемпотентно добавляет справочник курсов. Если в базе ещё нет ADMIN, он создаёт
+его из `SEED_ADMIN_LOGIN` и `SEED_ADMIN_PASSWORD`; пароль не имеет значения по умолчанию.
+Не запускайте seed с production `DATABASE_URL` для локальной настройки.
+
+Схема Prisma разбита на файлы в `prisma/`: `user.prisma`, `course.prisma`,
+`lesson.prisma`, `payment.prisma`, `audit.prisma`, `telegram.prisma` и
+`throttling.prisma`. Это multi-file schema Prisma 7; `prisma/schema.prisma`
+содержит только `generator` и `datasource`.
 
 ### Запуск
 
@@ -74,19 +85,28 @@ pnpm start   # без watch
 pnpm prod    # node dist/main, после pnpm build
 ```
 
-API поднимается на `PORT` (по умолчанию 3000) с префиксом `/api`. Health-check: `GET /api/check`.
+API поднимается на `PORT` (по умолчанию 3000) с префиксом `/api`.
+`GET /api/check` — liveness без проверки зависимостей; `GET /api/ready` проверяет
+PostgreSQL и возвращает optional-состояние Telegram. Списки используют `page` и
+`limit` (по умолчанию 1 и 20, максимум 100); список занятий требует `dateFrom` и
+`dateTo` в формате `YYYY-MM-DD` и ограничивает интервал 93 днями.
+
+Локально `prisma migrate dev` создаёт и применяет новую миграцию. В Docker перед
+запуском API выполняется `prisma migrate deploy`, которая применяет только ожидающие
+миграции из репозитория. Не редактируйте уже применённые миграции и не используйте
+`migrate reset` для upgrade-проверки: runner создаёт отдельную временную базу.
 
 ## Скрипты
 
-| Команда | Что делает |
-|---|---|
-| `pnpm build` | `nest build` → `dist/` |
-| `pnpm dev` | dev-сервер с watch |
-| `pnpm lint` | eslint --fix по `src`, `apps`, `libs`, `test` |
-| `pnpm format` | prettier --write |
-| `pnpm test` | юнит-тесты (jest, `rootDir: src`, файлы `*.spec.ts`) |
-| `pnpm test:cov` | тесты с coverage |
-| `pnpm test:e2e` | e2e (`test/jest-e2e.json`) |
+| Команда                 | Что делает                                                                                      |
+| ----------------------- | ----------------------------------------------------------------------------------------------- |
+| `pnpm build`            | `nest build` → `dist/`                                                                          |
+| `pnpm dev`              | dev-сервер с watch                                                                              |
+| `pnpm lint`             | eslint --fix по `src`, `apps`, `libs`, `test`                                                   |
+| `pnpm format`           | prettier --write                                                                                |
+| `pnpm test`             | юнит-тесты (jest, `rootDir: src`, файлы `*.spec.ts`)                                            |
+| `pnpm test:cov`         | тесты с coverage                                                                                |
+| `pnpm test:e2e`         | Jest config `test/jest-e2e.json`; готовых browser e2e-сценариев сейчас нет                      |
 | `pnpm test:integration` | отдельный временный PostgreSQL 17, миграции, drift check и интеграционные тесты; требует Docker |
 
 ## Структура проекта
@@ -94,15 +114,18 @@ API поднимается на `PORT` (по умолчанию 3000) с пре�
 ```
 src/
   main.ts                  # bootstrap: глобальный prefix /api, CORS, helmet
-  instrument.ts             # Sentry.init(), импортируется первым в main.ts
+  instrument.ts             # Sentry.init(), загружается до bootstrap
   app.module.ts              # сборка всех модулей
-  health.controller.ts        # GET /api/check
+  health.controller.ts        # GET /api/check и /api/ready
   generated/                 # Prisma client (генерируется, не редактировать руками)
   modules/
     common/
       auth/                  # login/refresh/logout, JwtAuthGuard + RolesGuard как APP_GUARD
       prisma/                # PrismaService (обёртка над PrismaClient + adapter-pg)
       audit/                 # AuditLog — читает актора из CLS-контекста запроса
+      business-time.ts       # бизнес-таймзона, фильтр дат и trusted proxies
+      pagination.ts          # ограниченные страницы ответов
+      throttling/            # общий rate limit через PostgreSQL
       validation/             # ValidationPipe konfig + кастомные исключения
     core/
       users/                 # пользователи, ролевые профили
@@ -114,7 +137,7 @@ src/
 prisma/
   *.prisma                    # схема (multi-file), см. выше
   migrations/                  # SQL-миграции
-  seed.ts                      # dev-сиды
+  seed.ts                     # курсы и необязательный bootstrap ADMIN
 ```
 
 ## Авторизация
@@ -144,6 +167,8 @@ BONUS_WINDOW_HOURS не добавляет бонус в уже финализи
 `bash test/run-integration.sh --current` применяет все миграции с нуля, сравнивает
 полученную БД со схемой Prisma и запускает сервисные тесты. `--upgrade` сначала
 создаёт прежнюю схему с минимальными фикстурами, затем проверяет переход и те же тесты.
+`--stage5` проверяет миграции и drift, а затем запускает тест общего PostgreSQL
+throttling.
 `--ambiguous-upgrade` проверяет отказ и rollback при неоднозначных старых данных.
 `--inconsistent-enrollment-upgrade` проверяет отказ составных FK на прежних
 несогласованных участниках, сохранение данных и отсутствие частично применённой DDL.
@@ -178,13 +203,14 @@ Production и несколько реплик используют webhook. Poll
 pending, failed, leased, expiredLease, oldestPendingAt, pendingInbox, failedInbox,
 leasedInbox. Ошибки очереди не включают содержимое сообщений или данные пользователей.
 
-Ограниченная пагинация, единая бизнес-зона, readiness и общий throttling реплик относятся
-к следующему этапу IMPLEMENTATION-PLAN и ещё не завершены.
+Пагинация, диапазоны дат, бизнес-таймзона, readiness и общий throttling реплик входят
+в текущую реализацию. Установки с нуля и upgrade проверяются отдельным изолированным
+runner из раздела «Проверки миграций».
 
 ## Деплой
 
 - **Railway**, сборка через `Dockerfile` (multi-stage: build → prune prod deps → runner на `node:22-alpine`)
-- Контейнер на старте гонит `prisma migrate deploy` и только потом стартует `node dist/main` (см. `CMD` в Dockerfile) — миграции применяются автоматически при каждом деплое, ручного шага нет
+- Контейнер перед запуском приложения выполняет `prisma migrate deploy` (см. `CMD` в Dockerfile). Применённые миграции не редактировать; выпуск с миграциями проверять upgrade-runner-ом на изолированной копии нужного baseline.
 - БД — Neon (Postgres), `DATABASE_URL` передаётся через переменные окружения Railway
 - Порт берётся из `process.env.PORT` (Railway подставляет сам)
 - Ошибки летят в Sentry, если задан `SENTRY_DSN`

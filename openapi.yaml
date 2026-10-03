@@ -3,16 +3,17 @@ openapi: 3.0.3
 info:
   title: CodeKids App API
   description: API для онлайн-школы программирования для детей
-  version: 1.1.0
+  version: 1.2.0
 
 servers:
-  - url: http://localhost:3000
+  - url: http://localhost:3000/api
     description: Local development
 
 tags:
   - name: Health
   - name: Auth
   - name: Users
+  - name: Courses
   - name: Enrollments
   - name: Lessons
   - name: Schedule Templates
@@ -21,6 +22,7 @@ tags:
   - name: Reschedule Requests
   - name: Payouts
   - name: Telegram
+  - name: Audit
 
 paths:
   # ── Health ──────────────────────────────────────────────────────────────────
@@ -37,6 +39,37 @@ paths:
               schema:
                 type: string
                 example: ok
+
+  /ready:
+    get:
+      tags: [Health]
+      summary: Readiness check
+      description: Checks PostgreSQL. Telegram is optional and its state does not fail readiness.
+      security: []
+      responses:
+        '200':
+          description: PostgreSQL is available
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, postgres, telegram]
+                properties:
+                  status: { type: string, enum: [ready] }
+                  postgres: { type: string, enum: [ready] }
+                  telegram:
+                    type: string
+                    enum: [disabled, ready_optional, degraded_optional]
+        '503':
+          description: PostgreSQL is unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, postgres]
+                properties:
+                  status: { type: string, enum: [not_ready] }
+                  postgres: { type: string, enum: [unavailable] }
 
   # ── Auth ────────────────────────────────────────────────────────────────────
   /auth/login:
@@ -120,6 +153,8 @@ paths:
       summary: List teachers
       description: 'Roles: ADMIN, MANAGER'
       parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
         - name: q
           in: query
           description: Поиск по firstName/lastName/email (case-insensitive)
@@ -135,9 +170,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/TeacherListItem'
+                $ref: '#/components/schemas/PaginatedTeacherList'
 
   /users/students:
     post:
@@ -164,6 +197,8 @@ paths:
         Roles: ADMIN, MANAGER (все), TEACHER (только свои — `teacherId` из query
         игнорируется, принудительно подставляется teacherProfile.id текущего пользователя).
       parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
         - name: q
           in: query
           description: Поиск по firstName/lastName/email (case-insensitive)
@@ -184,9 +219,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/StudentListItem'
+                $ref: '#/components/schemas/PaginatedStudentList'
 
   /users/staff:
     post:
@@ -215,19 +248,28 @@ paths:
         Базовый админский список. Для доменных таблиц используй
         `/users/students`, `/users/teachers`.
       parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
         - name: role
           in: query
           schema:
             $ref: '#/components/schemas/Role'
+        - name: roles
+          in: query
+          description: Comma-separated role filter; may be combined with role.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/Role'
       responses:
         '200':
           description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/User'
+                $ref: '#/components/schemas/PaginatedUserList'
 
   /users/{id}:
     get:
@@ -277,6 +319,85 @@ paths:
               schema:
                 $ref: '#/components/schemas/User'
 
+  /courses:
+    post:
+      tags: [Courses]
+      summary: Create course
+      description: 'Roles: ADMIN, MANAGER'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCourseDto'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Course'
+        '409':
+          description: Course with this name already exists
+    get:
+      tags: [Courses]
+      summary: List courses
+      description: 'Roles: ADMIN, MANAGER'
+      parameters:
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Courses ordered by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Course'
+
+  /courses/{id}:
+    get:
+      tags: [Courses]
+      summary: Get course by ID
+      description: 'Roles: ADMIN, MANAGER'
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Course
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Course'
+        '404':
+          description: Not found
+    patch:
+      tags: [Courses]
+      summary: Update course
+      description: 'Roles: ADMIN, MANAGER'
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCourseDto'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Course'
+        '404':
+          description: Not found
+        '409':
+          description: Course with this name already exists
+
   # ── Enrollments ─────────────────────────────────────────────────────────────
   /enrollments:
     post:
@@ -303,11 +424,17 @@ paths:
       tags: [Enrollments]
       summary: List enrollments
       parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
         - name: teacherId
           in: query
           schema:
             type: string
         - name: studentId
+          in: query
+          schema:
+            type: string
+        - name: courseId
           in: query
           schema:
             type: string
@@ -321,9 +448,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Enrollment'
+                $ref: '#/components/schemas/PaginatedEnrollmentList'
 
   /enrollments/{id}:
     get:
@@ -363,8 +488,14 @@ paths:
   /lessons/generate:
     post:
       tags: [Lessons]
-      summary: Generate lessons from active schedule templates (7 days ahead)
-      description: 'Roles: ADMIN, MANAGER'
+      summary: Generate lessons for a date range
+      description: 'Roles: ADMIN, MANAGER. When templateIds is omitted, all active templates are considered.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateLessonsDto'
       responses:
         '201':
           description: Generation result
@@ -372,9 +503,40 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [count]
                 properties:
-                  created:
+                  count:
                     type: integer
+
+  /lessons/generation-settings:
+    get:
+      tags: [Lessons]
+      summary: Read automatic lesson generation settings
+      description: 'Roles: ADMIN, MANAGER'
+      responses:
+        '200':
+          description: Current singleton settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LessonGenerationSettings'
+    patch:
+      tags: [Lessons]
+      summary: Update automatic lesson generation settings
+      description: 'Roles: ADMIN, MANAGER'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateGenerationSettingsDto'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LessonGenerationSettings'
 
   /lessons:
     post:
@@ -403,16 +565,22 @@ paths:
         TEACHER — own lessons.
         STUDENT — own lessons.
       parameters:
-        - name: from
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: dateFrom
           in: query
+          required: true
+          description: Inclusive business-zone calendar date (YYYY-MM-DD).
           schema:
             type: string
-            format: date-time
-        - name: to
+            format: date
+        - name: dateTo
           in: query
+          required: true
+          description: Inclusive business-zone calendar date (YYYY-MM-DD), within 93 days of dateFrom.
           schema:
             type: string
-            format: date-time
+            format: date
         - name: status
           in: query
           schema:
@@ -431,9 +599,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Lesson'
+                $ref: '#/components/schemas/PaginatedLessonList'
 
   /lessons/{id}:
     get:
@@ -531,6 +697,8 @@ paths:
       tags: [Schedule Templates]
       summary: List schedule templates
       parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
         - name: teacherId
           in: query
           schema:
@@ -554,9 +722,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ScheduleTemplate'
+                $ref: '#/components/schemas/PaginatedScheduleTemplateList'
 
   /schedule-templates/{id}:
     get:
@@ -611,7 +777,7 @@ paths:
     post:
       tags: [Reports]
       summary: Create lesson report
-      description: 'Roles: TEACHER (own lessons only). 50₽ bonus if submitted within 24h.'
+      description: 'Roles: TEACHER (own lessons only). Bonus amount and time window use BONUS_AMOUNT and BONUS_WINDOW_HOURS (defaults 50 and 24 hours).'
       parameters:
         - $ref: '#/components/parameters/LessonId'
       requestBody:
@@ -787,6 +953,8 @@ paths:
       summary: List reschedule requests
       description: 'Roles: ADMIN, MANAGER'
       parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
         - name: status
           in: query
           schema:
@@ -801,9 +969,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/RescheduleRequest'
+                $ref: '#/components/schemas/PaginatedRescheduleRequestList'
 
   /reschedule-requests/{id}/approve:
     post:
@@ -897,6 +1063,8 @@ paths:
         ADMIN/MANAGER — all payouts.
         TEACHER — own payouts only.
       parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
         - name: teacherId
           in: query
           schema:
@@ -921,9 +1089,49 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Payout'
+                $ref: '#/components/schemas/PaginatedPayoutList'
+
+  /audit-logs:
+    get:
+      tags: [Audit]
+      summary: List audit events
+      description: 'Roles: ADMIN, MANAGER'
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: userId
+          in: query
+          schema:
+            type: string
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: entityType
+          in: query
+          schema:
+            type: string
+        - name: entityId
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Audit events ordered newest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuditLogList'
 
   /payouts/{id}/pay:
     patch:
@@ -1045,7 +1253,8 @@ paths:
                   failed: { type: integer }
                   leased: { type: integer }
                   expiredLease: { type: integer }
-                  oldestPendingAt: { type: string, format: date-time, nullable: true }
+                  oldestPendingAt:
+                    { type: string, format: date-time, nullable: true }
                   pendingInbox: { type: integer }
                   failedInbox: { type: integer }
                   leasedInbox: { type: integer }
@@ -1061,6 +1270,24 @@ components:
       bearerFormat: JWT
 
   parameters:
+    Page:
+      name: page
+      in: query
+      description: One-based page number.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 10000
+        default: 1
+    Limit:
+      name: limit
+      in: query
+      description: Number of items per page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
     StudentId:
       name: studentId
       in: path
@@ -1087,6 +1314,117 @@ components:
         type: string
 
   schemas:
+    PaginationEnvelope:
+      type: object
+      required: [meta, links]
+      properties:
+        meta:
+          type: object
+          required: [itemsPerPage, totalItems, currentPage, totalPages, sortBy]
+          properties:
+            itemsPerPage: { type: integer }
+            totalItems: { type: integer }
+            currentPage: { type: integer }
+            totalPages: { type: integer }
+            sortBy:
+              type: array
+              description: Ordered pairs of field name and direction; empty when no explicit sorting is requested.
+              items:
+                type: array
+                minItems: 2
+                maxItems: 2
+                items: { type: string }
+        links:
+          type: object
+          required: [current, next, last]
+          properties:
+            current: { type: string }
+            next:
+              { type: string, description: Empty when there is no next page. }
+            last: { type: string }
+
+    PaginatedUserList:
+      allOf:
+        - $ref: '#/components/schemas/PaginationEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/User' }
+    PaginatedStudentList:
+      allOf:
+        - $ref: '#/components/schemas/PaginationEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/StudentListItem' }
+    PaginatedTeacherList:
+      allOf:
+        - $ref: '#/components/schemas/PaginationEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/TeacherListItem' }
+    PaginatedEnrollmentList:
+      allOf:
+        - $ref: '#/components/schemas/PaginationEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/Enrollment' }
+    PaginatedLessonList:
+      allOf:
+        - $ref: '#/components/schemas/PaginationEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/Lesson' }
+    PaginatedScheduleTemplateList:
+      allOf:
+        - $ref: '#/components/schemas/PaginationEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/ScheduleTemplate' }
+    PaginatedRescheduleRequestList:
+      allOf:
+        - $ref: '#/components/schemas/PaginationEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/RescheduleRequest' }
+    PaginatedPayoutList:
+      allOf:
+        - $ref: '#/components/schemas/PaginationEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/Payout' }
+    PaginatedAuditLogList:
+      allOf:
+        - $ref: '#/components/schemas/PaginationEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/AuditLog' }
+
     # ── Enums ─────────────────────────────────────────────────────────────────
     Role:
       type: string
@@ -1115,6 +1453,66 @@ components:
     RescheduleRequestStatus:
       type: string
       enum: [PENDING, APPROVED, REJECTED]
+
+    Course:
+      type: object
+      required: [id, name, isActive, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    CreateCourseDto:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: string, maxLength: 500 }
+
+    UpdateCourseDto:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: string, maxLength: 500 }
+        isActive: { type: boolean }
+
+    LessonGenerationSettings:
+      type: object
+      required: [id, enabled, triggerDay, daysAhead, updatedAt]
+      properties:
+        id: { type: string, example: singleton }
+        enabled: { type: boolean }
+        triggerDay: { $ref: '#/components/schemas/DayOfWeek' }
+        daysAhead: { type: integer, minimum: 1, maximum: 365 }
+        updatedAt: { type: string, format: date-time }
+
+    UpdateGenerationSettingsDto:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        triggerDay: { $ref: '#/components/schemas/DayOfWeek' }
+        daysAhead: { type: integer, minimum: 1, maximum: 365 }
+
+    AuditLog:
+      type: object
+      required: [id, action, entityType, createdAt]
+      properties:
+        id: { type: string }
+        userId: { type: string, nullable: true }
+        action: { type: string }
+        entityType: { type: string }
+        entityId: { type: string, nullable: true }
+        details: { type: object, nullable: true, additionalProperties: true }
+        ipAddress: { type: string, nullable: true }
+        userAgent: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        user:
+          allOf:
+            - $ref: '#/components/schemas/User'
+          nullable: true
 
     # ── Auth DTOs ─────────────────────────────────────────────────────────────
     LoginDto:
@@ -1494,6 +1892,22 @@ components:
         teacherRate:
           type: number
           minimum: 0
+
+    GenerateLessonsDto:
+      type: object
+      required: [dateFrom, dateTo]
+      properties:
+        dateFrom:
+          type: string
+          format: date-time
+        dateTo:
+          type: string
+          format: date-time
+        templateIds:
+          type: array
+          minItems: 1
+          items:
+            type: string
 
     RescheduleLessonDto:
       type: object

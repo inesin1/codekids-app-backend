@@ -1,7 +1,40 @@
 # Backend integration tests
 
-Run `bash test/run-integration.sh` from the backend repository (or `pnpm test:integration` when the configured pnpm version is available). The runner requires a working local Docker daemon and the PostgreSQL 17 Alpine image. It starts a uniquely named container with a random password, binds its random port to `127.0.0.1`, deploys migrations into an empty database, runs a minimal SQL fixture, and removes the container on exit.
+Run `bash test/run-integration.sh` from the backend repository (or
+`pnpm test:integration` with the configured pnpm version). The runner requires a
+working local Docker daemon and the PostgreSQL 17 Alpine image. It starts a
+uniquely named container with a random password, binds a random port to
+`127.0.0.1`, deploys migrations into an empty database, and removes the
+container on exit.
 
-By default, the runner uses all migrations in `prisma/migrations`. Pass `--historical` to apply only the migrations through `20260921130000_user_birth_dates`; it copies those migration files to a temporary directory and leaves the repository unchanged. Pass `--legacy-fixture` to apply that historical set and validate the synthetic multi-profile parent/staff and child fixture without applying newer migrations. Pass `--upgrade` to apply the historical set, load the migration fixture, apply all current migrations, and assert the transferred credentials, balances, ledger rows, and revoked sessions. Pass `--ambiguous-upgrade` to create a parent linked to multiple students, assert that migration fails, and verify the legacy schema and data remain unchanged. Pass `--inconsistent-enrollment-upgrade` to assert that historical participant mismatches reject the composite-FK migration without partially replacing constraints. Both negative upgrade modes skip current-schema Jest tests and drift checks. When `test/integration/**/*.integration.spec.ts` tests exist, current and upgrade modes also generate the Prisma client and run the focused Jest config. Historical and legacy-fixture modes skip Jest because the current client may represent a newer schema.
+The default `--current` mode runs every PostgreSQL integration test against a
+fresh install. `--upgrade` applies the historical migrations and fixture,
+applies all current migrations, checks the transferred data, and runs the same
+integration suite. Both modes compare the resulting database with the Prisma
+schema.
 
-The runner discards inherited PostgreSQL connection variables and creates `DATABASE_URL` from its container's loopback port. The runner and Jest setup both validate the database name, user, host, port, schema, and runner guard before connecting. Telegram credentials and webhook settings are cleared; the tests do not start the application or call Telegram. No `.env` file is loaded by the integration Prisma config.
+Other modes:
+
+- `--stage5` checks all current migrations and Prisma drift, then runs the
+  shared PostgreSQL throttling concurrency test.
+- `--historical` applies migrations through
+  `20260921130000_user_birth_dates`.
+- `--legacy-fixture` applies that historical set and validates the synthetic
+  multi-profile parent/staff and child fixture without applying newer
+  migrations.
+- `--ambiguous-upgrade` asserts that a parent linked to multiple students
+  makes the upgrade fail without changing the legacy schema or data.
+- `--inconsistent-enrollment-upgrade` asserts that historical participant
+  mismatches reject the composite-FK migration without partially replacing
+  constraints.
+
+The two negative upgrade modes skip current-schema Jest tests and drift
+checks. Historical and legacy-fixture modes also skip Jest because the current
+Prisma client may represent a newer schema.
+
+The runner discards inherited PostgreSQL connection variables and creates
+`DATABASE_URL` from its container's loopback port. The runner and Jest setup
+validate the database name, user, host, port, schema, and runner guard before
+connecting. Telegram credentials and webhook settings are cleared; tests do
+not start the application or call Telegram. The integration Prisma config
+does not load a `.env` file.
