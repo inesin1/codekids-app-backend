@@ -11,6 +11,7 @@ import { EnrollmentsModule } from './modules/core/enrollments/enrollments.module
 import { CoursesModule } from './modules/core/courses/courses.module';
 import { LessonsModule } from './modules/core/lessons/lessons.module';
 import { PayoutsModule } from './modules/core/payouts/payouts.module';
+import { PaymentsModule } from './modules/core/payments/payments.module';
 import { ValidationModule } from './modules/common/validation/validation.module';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -55,6 +56,7 @@ const coreModules = [
   CoursesModule,
   EnrollmentsModule,
   LessonsModule,
+  PaymentsModule,
   PayoutsModule,
 ];
 
