@@ -276,16 +276,15 @@ describe('student-owned portal resources with PostgreSQL', () => {
     const request = (actor: { id: string; roles: Role[] }) =>
       ({ user: actor }) as unknown as Express.Request;
 
-    const firstLessons = await lessonsController.findAll(
-      request(firstActor),
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      secondStudentId,
-    );
-    expect(firstLessons.map(({ id }) => id)).toEqual([firstLessonId]);
-    expect(firstLessons[0].report?.extraNotes).toBeNull();
+    const firstLessons = await lessonsController.findAll(request(firstActor), {
+      dateFrom: '2026-10-01',
+      dateTo: '2026-10-01',
+      studentId: secondStudentId,
+      page: 1,
+      limit: 20,
+    });
+    expect(firstLessons.data.map(({ id }) => id)).toEqual([firstLessonId]);
+    expect(firstLessons.data[0].report?.extraNotes).toBeNull();
     expect((await lessons.findById(firstLessonId)).report?.extraNotes).toBe(
       'first internal note',
     );
@@ -345,8 +344,13 @@ describe('student-owned portal resources with PostgreSQL', () => {
         type: RescheduleRequestType.CANCEL,
       },
     );
-    expect(await reschedules.findAll({}, secondActor)).toHaveLength(0);
-    expect(await reschedules.findAll({}, firstActor)).toHaveLength(1);
+    const requestFilters = { page: 1, limit: 20 };
+    expect(
+      (await reschedules.findAll(requestFilters, secondActor)).data,
+    ).toHaveLength(0);
+    expect(
+      (await reschedules.findAll(requestFilters, firstActor)).data,
+    ).toHaveLength(1);
     expect(ownRequest.lessonId).toBe(scheduledRequestLesson.id);
 
     const creatorOwnRequest = await prisma.rescheduleRequest.create({
@@ -374,30 +378,31 @@ describe('student-owned portal resources with PostgreSQL', () => {
       auditService as unknown as AuditService,
     );
     const usersController = new UsersController(usersService);
+    const studentListQuery = { page: 1, limit: 20 };
     const teacherStudentRows = await usersController.findAllStudents(
       request({ id: teacherId, roles: [Role.TEACHER] }),
-      {},
+      studentListQuery,
     );
-    expect(teacherStudentRows.map(({ id }) => id).sort()).toEqual(
+    expect(teacherStudentRows.data.map(({ id }) => id).sort()).toEqual(
       [firstStudentId, secondStudentId].sort(),
     );
     expect(
-      teacherStudentRows.every(
+      teacherStudentRows.data.every(
         (student) => !('balance' in (student.studentProfile ?? {})),
       ),
     ).toBe(true);
     const managerStudentRows = await usersController.findAllStudents(
       request({ id: managerId, roles: [Role.MANAGER] }),
-      {},
+      studentListQuery,
     );
     expect(
-      managerStudentRows.every(
+      managerStudentRows.data.every(
         (student) => 'balance' in (student.studentProfile ?? {}),
       ),
     ).toBe(true);
-    const multiProfileManager = (await usersService.findAll()).find(
-      (user) => user.id === managerId,
-    );
+    const multiProfileManager = (
+      await usersService.findAll({ page: 1, limit: 100 })
+    ).data.find((user) => user.id === managerId);
     expect(multiProfileManager?.roles).toEqual([
       Role.MANAGER,
       Role.TEACHER,

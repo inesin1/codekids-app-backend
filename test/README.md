@@ -11,7 +11,10 @@ The default `--current` mode runs every PostgreSQL integration test against a
 fresh install. `--upgrade` applies the historical migrations and fixture,
 applies all current migrations, checks the transferred data, and runs the same
 integration suite. Both modes compare the resulting database with the Prisma
-schema.
+schema. The Telegram queue suite also launches independent Node worker
+processes: one claims a row and is killed before ACK, then a second reclaims
+the row after the test expires its lease in PostgreSQL and delivers through a
+stub Telegram API.
 
 Other modes:
 

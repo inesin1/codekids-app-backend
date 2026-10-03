@@ -1,5 +1,7 @@
 import { ConfigService } from '@nestjs/config';
+import { fork, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
 import { GrammyError } from 'grammy';
 import type { Update } from 'grammy/types';
 import { DateTime } from 'luxon';
@@ -189,6 +191,83 @@ describe('durable Telegram queue with PostgreSQL', () => {
     expect(current.deliveredVersion).toBe(1);
     expect(current.telegramMessageId).toBe(102);
   });
+
+  it('recovers an outbox claim after its worker process stops', async () => {
+    const event = groupEvent(
+      studentId,
+      'process-recovery',
+      'process-recovery-occurrence',
+      'recover after worker stop',
+    );
+    await workerA.enqueue(event);
+    const queued = await findEvent(prisma, event);
+    const firstWorkers = [spawnQueueWorker(), spawnQueueWorker()];
+    const workers = [...firstWorkers];
+
+    try {
+      await Promise.all(
+        firstWorkers.map((worker) => waitForWorkerMessage(worker, ['ready'])),
+      );
+      const claimResults = firstWorkers.map((worker) =>
+        waitForWorkerMessage(worker, ['claimed', 'empty']),
+      );
+      for (const worker of firstWorkers) worker.send({ type: 'start' });
+
+      const results = await Promise.all(claimResults);
+      const claimedIndex = results.findIndex(({ type }) => type === 'claimed');
+      expect(results.filter(({ type }) => type === 'claimed')).toHaveLength(1);
+      expect(results.filter(({ type }) => type === 'empty')).toHaveLength(1);
+
+      const firstWorker = firstWorkers[claimedIndex];
+      if (!firstWorker) throw new Error('No worker claimed the queued event');
+      const firstClaim = await prisma.telegramNotification.findUniqueOrThrow({
+        where: { id: queued.id },
+      });
+      expect(firstClaim.leaseToken).toBeTruthy();
+      await stopQueueWorker(firstWorker);
+
+      await prisma.telegramNotification.update({
+        where: { id: queued.id },
+        data: { leaseExpiresAt: new Date(Date.now() - 1000) },
+      });
+
+      const recoveryWorker = spawnQueueWorker();
+      workers.push(recoveryWorker);
+      await waitForWorkerMessage(recoveryWorker, ['ready']);
+      const recoveredClaimMessage = waitForWorkerMessage(recoveryWorker, [
+        'claimed',
+        'empty',
+      ]);
+      recoveryWorker.send({ type: 'start' });
+      const recoveredClaim = await recoveredClaimMessage;
+      expect(recoveredClaim.type).toBe('claimed');
+      if (recoveredClaim.type !== 'claimed') {
+        throw new Error('Recovery worker did not reclaim the expired event');
+      }
+      const currentClaim = await prisma.telegramNotification.findUniqueOrThrow({
+        where: { id: queued.id },
+      });
+      expect(currentClaim.leaseToken).not.toBe(firstClaim.leaseToken);
+      expect(currentClaim.deliveredVersion).toBe(0);
+
+      const delivered = waitForWorkerMessage(recoveryWorker, ['delivered']);
+      recoveryWorker.send({ type: 'deliver' });
+      await delivered;
+      await waitForQueueWorkerExit(recoveryWorker);
+
+      await expect(
+        prisma.telegramNotification.findUniqueOrThrow({
+          where: { id: queued.id },
+        }),
+      ).resolves.toMatchObject({
+        deliveredVersion: 1,
+        telegramMessageId: 901,
+        leaseToken: null,
+      });
+    } finally {
+      await Promise.all(workers.map(stopQueueWorker));
+    }
+  }, 30_000);
 
   it('preserves an edit made while the first API send is blocked and edits that message on retry', async () => {
     const teacherId = `telegram-teacher-${randomUUID()}`;
@@ -678,6 +757,93 @@ describe('durable Telegram queue with PostgreSQL', () => {
     },
   );
 });
+
+type QueueWorkerMessage = {
+  type: string;
+  id?: string;
+  error?: string;
+};
+
+function spawnQueueWorker() {
+  const guard = resolve(process.cwd(), 'test/assert-integration-database.cjs');
+  return fork(
+    resolve(process.cwd(), 'test/integration/telegram-queue-worker.ts'),
+    [],
+    {
+      execArgv: ['--import', 'tsx'],
+      env: {
+        ...process.env,
+        NODE_OPTIONS: [process.env['NODE_OPTIONS'], `--require=${guard}`]
+          .filter(Boolean)
+          .join(' '),
+      },
+      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+    },
+  );
+}
+
+function waitForWorkerMessage(
+  worker: ChildProcess,
+  expectedTypes: string[],
+): Promise<QueueWorkerMessage> {
+  return new Promise((resolveMessage, rejectMessage) => {
+    const timeout = setTimeout(() => {
+      finish(() => rejectMessage(new Error('Worker IPC message timed out')));
+    }, 15_000);
+    const finish = (callback: () => void) => {
+      clearTimeout(timeout);
+      worker.off('message', onMessage);
+      worker.off('exit', onExit);
+      worker.off('error', onError);
+      callback();
+    };
+    const onMessage = (value: unknown) => {
+      if (!value || typeof value !== 'object' || !('type' in value)) return;
+      const message = value as QueueWorkerMessage;
+      if (message.type === 'error') {
+        finish(() =>
+          rejectMessage(new Error(message.error ?? 'Worker process failed')),
+        );
+      } else if (expectedTypes.includes(message.type)) {
+        finish(() => resolveMessage(message));
+      }
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      finish(() =>
+        rejectMessage(
+          new Error(`Worker exited before its message (${code ?? signal})`),
+        ),
+      );
+    };
+    const onError = (error: Error) => {
+      finish(() => rejectMessage(error));
+    };
+    worker.on('message', onMessage);
+    worker.once('exit', onExit);
+    worker.once('error', onError);
+  });
+}
+
+function waitForQueueWorkerExit(worker: ChildProcess): Promise<void> {
+  if (worker.exitCode !== null || worker.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise((resolveExit) => worker.once('exit', () => resolveExit()));
+}
+
+function stopQueueWorker(worker: ChildProcess): Promise<void> {
+  if (worker.exitCode !== null || worker.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise((resolveExit) => {
+    const timeout = setTimeout(resolveExit, 5_000);
+    worker.once('exit', () => {
+      clearTimeout(timeout);
+      resolveExit();
+    });
+    worker.kill('SIGKILL');
+  });
+}
 
 function createService(prisma: PrismaService) {
   const service = new TelegramService(prisma, {
