@@ -21,6 +21,7 @@ tags:
   - name: Materials
   - name: Reschedule Requests
   - name: Payouts
+  - name: Analytics
   - name: Telegram
   - name: Audit
 
@@ -1177,6 +1178,124 @@ paths:
         '400':
           description: Payout is not in PENDING status
 
+  # ── Analytics ───────────────────────────────────────────────────────────────
+  /analytics/lessons/jobs:
+    post:
+      tags: [Analytics]
+      summary: Start lesson analytics report generation
+      description: 'Roles: ADMIN, MANAGER. Report rows, summary, and XLSX are retained for one hour.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LessonsAnalyticsFilters'
+      responses:
+        '201':
+          description: Report job queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsJobCreated'
+        '400':
+          description: Invalid report filters
+
+  /analytics/payouts/jobs:
+    post:
+      tags: [Analytics]
+      summary: Start payout analytics report generation
+      description: 'Roles: ADMIN, MANAGER. Report rows, summary, and XLSX are retained for one hour.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayoutsAnalyticsFilters'
+      responses:
+        '201':
+          description: Report job queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsJobCreated'
+        '400':
+          description: Invalid report filters
+
+  /analytics/jobs/{jobId}:
+    get:
+      tags: [Analytics]
+      summary: Get analytics report job status
+      description: 'Roles: ADMIN, MANAGER'
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Job state, progress, and completed summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsJobStatus'
+        '404':
+          description: Job is missing or its one-hour retention expired
+
+  /analytics/jobs/{jobId}/rows:
+    get:
+      tags: [Analytics]
+      summary: Read a sorted page from a completed report snapshot
+      description: 'Roles: ADMIN, MANAGER. Sorting uses the stored report snapshot and is stable by row ID.'
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: sortBy
+          in: query
+          schema: { type: string }
+        - name: sortOrder
+          in: query
+          schema: { type: string, enum: [asc, desc], default: desc }
+      responses:
+        '200':
+          description: Sorted page from the report snapshot
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/PaginatedLessonAnalyticsRows'
+                  - $ref: '#/components/schemas/PaginatedPayoutAnalyticsRows'
+        '404':
+          description: Job is missing or its one-hour retention expired
+        '409':
+          description: Report is not ready
+
+  /analytics/jobs/{jobId}/export:
+    get:
+      tags: [Analytics]
+      summary: Download the XLSX file from a completed report job
+      description: 'Roles: ADMIN, MANAGER'
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: XLSX file containing the full report snapshot and totals
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Job is missing or its one-hour retention expired
+        '409':
+          description: Report is not ready
+
   # ── Telegram ────────────────────────────────────────────────────────────────
   /telegram/groups/{studentId}/link:
     post:
@@ -1468,6 +1587,123 @@ components:
     PayoutStatus:
       type: string
       enum: [PENDING, PAID]
+
+    AnalyticsReportType:
+      type: string
+      enum: [lessons, payouts]
+
+    AnalyticsJobState:
+      type: string
+      enum: [waiting, active, completed, failed]
+
+    AnalyticsJobCreated:
+      type: object
+      required: [jobId]
+      properties:
+        jobId: { type: string }
+
+    AnalyticsJobStatus:
+      type: object
+      required: [jobId, reportType, status, progress]
+      properties:
+        jobId: { type: string }
+        reportType: { $ref: '#/components/schemas/AnalyticsReportType' }
+        status: { $ref: '#/components/schemas/AnalyticsJobState' }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        summary:
+          oneOf:
+            - $ref: '#/components/schemas/LessonsAnalyticsSummary'
+            - $ref: '#/components/schemas/PayoutsAnalyticsSummary'
+        totalItems: { type: integer, minimum: 0 }
+        error: { type: string }
+
+    LessonsAnalyticsFilters:
+      type: object
+      required: [dateFrom, dateTo]
+      properties:
+        dateFrom: { type: string, format: date }
+        dateTo: { type: string, format: date }
+        teacherId: { type: string }
+        studentId: { type: string }
+
+    PayoutsAnalyticsFilters:
+      type: object
+      required: [dateFrom, dateTo]
+      properties:
+        dateFrom: { type: string, format: date }
+        dateTo: { type: string, format: date }
+        teacherId: { type: string }
+        status: { $ref: '#/components/schemas/PayoutStatus' }
+
+    LessonsAnalyticsSummary:
+      type: object
+      required: [completedLessonCount, lessonRevenue, teacherAccrued, topUps]
+      properties:
+        completedLessonCount: { type: integer, minimum: 0 }
+        lessonRevenue: { type: string, description: Exact Decimal string }
+        teacherAccrued: { type: string, description: Exact Decimal string }
+        topUps: { type: string, nullable: true, description: Exact Decimal string }
+
+    PayoutsAnalyticsSummary:
+      type: object
+      required: [payoutCount, totalPayout, paidPayout, pendingPayout]
+      properties:
+        payoutCount: { type: integer, minimum: 0 }
+        totalPayout: { type: string, description: Exact Decimal string }
+        paidPayout: { type: string, description: Exact Decimal string }
+        pendingPayout: { type: string, description: Exact Decimal string }
+
+    LessonAnalyticsRow:
+      type: object
+      required: [id, scheduledAt, completedAt, durationMinutes, price, teacherRate, bonusAmount, teacherId, teacherName, studentId, studentName, courseName]
+      properties:
+        id: { type: string }
+        scheduledAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time }
+        durationMinutes: { type: integer }
+        price: { type: string, description: Exact Decimal string }
+        teacherRate: { type: string, nullable: true, description: Exact Decimal string }
+        bonusAmount: { type: string, description: Exact Decimal string }
+        teacherId: { type: string }
+        teacherName: { type: string }
+        studentId: { type: string }
+        studentName: { type: string }
+        courseName: { type: string }
+
+    PayoutAnalyticsRow:
+      type: object
+      required: [id, teacherId, teacherName, periodStart, periodEnd, basePay, bonusPay, totalPay, status, paidAt]
+      properties:
+        id: { type: string }
+        teacherId: { type: string }
+        teacherName: { type: string }
+        periodStart: { type: string, format: date-time }
+        periodEnd: { type: string, format: date-time }
+        basePay: { type: string, description: Exact Decimal string }
+        bonusPay: { type: string, description: Exact Decimal string }
+        totalPay: { type: string, description: Exact Decimal string }
+        status: { $ref: '#/components/schemas/PayoutStatus' }
+        paidAt: { type: string, format: date-time, nullable: true }
+
+    PaginatedLessonAnalyticsRows:
+      allOf:
+        - $ref: '#/components/schemas/PaginationEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/LessonAnalyticsRow' }
+
+    PaginatedPayoutAnalyticsRows:
+      allOf:
+        - $ref: '#/components/schemas/PaginationEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/PayoutAnalyticsRow' }
 
     TransactionType:
       type: string

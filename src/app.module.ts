@@ -19,6 +19,7 @@ import { SentryGlobalFilter, SentryModule } from '@sentry/nestjs/setup';
 import { ThrottlingModule } from './modules/common/throttling/throttling.module';
 import { PostgresThrottlerStorage } from './modules/common/throttling/postgres-throttler.storage';
 import { TelegramModule } from './modules/common/telegram/telegram.module';
+import { AnalyticsModule } from './modules/core/analytics/analytics.module';
 
 const commonModules = [
   SentryModule.forRoot(),
@@ -58,6 +59,7 @@ const coreModules = [
   LessonsModule,
   PaymentsModule,
   PayoutsModule,
+  AnalyticsModule,
 ];
 
 @Module({
