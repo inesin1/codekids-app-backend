@@ -87,9 +87,9 @@ model LessonGenerationSettings {
 // ---------------------------------------------------------------------------
 
 enum LessonStatus {
-  SCHEDULED   // запланировано
-  COMPLETED   // проведено
-  CANCELED   // отменено
+  SCHEDULED // запланировано
+  COMPLETED // проведено
+  CANCELED // отменено
   RESCHEDULED // перенесено (создано новое занятие)
 }
 
@@ -158,7 +158,7 @@ model LessonReport {
   lessonId String @unique
   lesson   Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
 
-  topic           String  // тема занятия
+  topic           String // тема занятия
   covered         String  @db.Text // что изучили
   results         String  @db.Text // результаты
   parentComment   String? @db.Text // комментарий для родителя
@@ -172,7 +172,7 @@ model LessonReport {
   bonusApplied Boolean  @default(false)
   bonusAmount  Decimal? @db.Decimal(10, 2)
 
-  sentToTelegram Boolean @default(false)
+  sentToTelegram Boolean            @default(false)
   status         LessonReportStatus @default(DRAFT)
   submittedAt    DateTime?
 
@@ -197,7 +197,7 @@ model Material {
 
   title    String
   fileType String? // MIME-тип файла
-  fileSize Int?    // размер в байтах
+  fileSize Int? // размер в байтах
   fileData Bytes
 
   sentToTelegram Boolean @default(false)
@@ -231,11 +231,11 @@ model RescheduleRequest {
   lesson   Lesson @relation(fields: [lessonId], references: [id])
 
   type   RescheduleRequestType
-  reason String? @db.Text
+  reason String?               @db.Text
 
   // Кто создал заявку (преподаватель или родитель)
   createdById String
-  createdBy   User @relation("RescheduleCreatedBy", fields: [createdById], references: [id])
+  createdBy   User   @relation("RescheduleCreatedBy", fields: [createdById], references: [id])
 
   // Предлагаемая новая дата (только для RESCHEDULE)
   proposedDate DateTime?
@@ -244,7 +244,7 @@ model RescheduleRequest {
 
   // Кто подтвердил/отклонил
   resolvedById String?
-  resolvedBy   User?    @relation("RescheduleResolvedBy", fields: [resolvedById], references: [id])
+  resolvedBy   User?     @relation("RescheduleResolvedBy", fields: [resolvedById], references: [id])
   resolvedAt   DateTime?
 
   sentToTelegram Boolean @default(false)
