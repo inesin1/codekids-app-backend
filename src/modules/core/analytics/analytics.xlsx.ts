@@ -41,7 +41,8 @@ export async function createAnalyticsWorkbook(
 
     const sheet = workbook.addWorksheet('Занятия');
     sheet.columns = [
-      { header: 'Дата занятия', key: 'completedAt', width: 24 },
+      { header: 'Дата занятия', key: 'scheduledAt', width: 24 },
+      { header: 'Отмечено проведенным', key: 'completedAt', width: 28 },
       { header: 'Преподаватель', key: 'teacherName', width: 28 },
       { header: 'Ученик', key: 'studentName', width: 28 },
       { header: 'Курс', key: 'courseName', width: 28 },
@@ -51,14 +52,16 @@ export async function createAnalyticsWorkbook(
       { header: 'Премия', key: 'bonusAmount', width: 16 },
     ];
     sheet.views = [{ state: 'frozen', ySplit: 1 }];
-    sheet.autoFilter = 'A1:H1';
+    sheet.autoFilter = 'A1:I1';
     sheet.getRow(1).font = { bold: true };
+    sheet.getColumn('scheduledAt').numFmt = 'dd.mm.yyyy hh:mm';
     sheet.getColumn('completedAt').numFmt = 'dd.mm.yyyy hh:mm';
     sheet.getColumn('price').numFmt = '#,##0.00';
     sheet.getColumn('teacherRate').numFmt = '#,##0.00';
     sheet.getColumn('bonusAmount').numFmt = '#,##0.00';
     for (const row of data) {
       sheet.addRow([
+        toExcelBusinessTime(row.scheduledAt),
         toExcelBusinessTime(row.completedAt),
         row.teacherName,
         row.studentName,

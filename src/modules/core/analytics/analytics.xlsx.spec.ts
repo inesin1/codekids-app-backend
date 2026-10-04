@@ -104,6 +104,7 @@ function businessExcelDate(
 function lesson(id: string, completedAt: Date | string) {
   return {
     id,
+    scheduledAt: completedAt,
     completedAt,
     teacherName: 'Teacher',
     studentName: 'Student',
