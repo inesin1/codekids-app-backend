@@ -34,7 +34,7 @@ describe('UsersService student access', () => {
           id: 'student-1',
           firstName: 'Alex',
           lastName: 'Kid',
-          email: 'family@example.test',
+          contacts: [{ id: 'contact-email', label: 'Email', value: 'family@example.test' }],
           birthDate: null,
           isActive: true,
           staffRoles: [],
@@ -42,7 +42,6 @@ describe('UsersService student access', () => {
           studentProfile: {
             userId: 'student-1',
             parentName: 'Parent',
-            parentContacts: [{ id: 'contact-1', label: 'Phone', value: '+1' }],
           },
         }),
       },
@@ -54,7 +53,7 @@ describe('UsersService student access', () => {
           id: 'student-1',
           firstName: 'Alex',
           lastName: 'Kid',
-          email: 'family@example.test',
+          contacts: [{ id: 'contact-email', label: 'Email', value: 'family@example.test' }],
           birthDate: null,
           isActive: true,
           staffRoles: [],
@@ -62,7 +61,6 @@ describe('UsersService student access', () => {
           studentProfile: {
             userId: 'student-1',
             parentName: 'Parent',
-            parentContacts: null,
           },
         }),
         findMany: jest.fn().mockResolvedValue([]),
@@ -86,9 +84,11 @@ describe('UsersService student access', () => {
     const result = await service.createStudent({
       firstName: 'Alex',
       lastName: 'Kid',
-      email: 'family@example.test',
+      contacts: [
+        { label: 'Email', value: 'family@example.test' },
+        { label: 'Phone', value: '+1' },
+      ],
       parentName: 'Parent',
-      parentContacts: [{ label: 'Phone', value: '+1' }],
     });
 
     const [[args]] = prisma.user.create.mock.calls as unknown as [
@@ -97,23 +97,24 @@ describe('UsersService student access', () => {
           data: {
             login?: string;
             password: string | null;
-            email?: string;
-            studentProfile: { create: { parentContacts: unknown } };
+            contacts?: unknown;
+            studentProfile: { create: { parentName: string } };
           };
         },
       ],
     ];
     expect(args.data.login).toBeUndefined();
     expect(args.data.password).toBeNull();
-    expect(args.data.email).toBe('family@example.test');
-    const [contact] = args.data.studentProfile.create.parentContacts as Array<
-      Record<string, unknown>
-    >;
-    expect(contact.label).toBe('Phone');
-    expect(typeof contact.id).toBe('string');
+    const contacts = args.data.contacts as Array<Record<string, unknown>>;
+    const [emailContact, phoneContact] = contacts;
+    expect(emailContact.label).toBe('Email');
+    expect(emailContact.value).toBe('family@example.test');
+    expect(typeof emailContact.id).toBe('string');
+    expect(phoneContact.label).toBe('Phone');
+    expect(typeof phoneContact.id).toBe('string');
     expect(result.roles).toEqual([Role.STUDENT]);
     expect(result.studentProfile).toEqual(
-      expect.objectContaining({ parentName: 'Parent', parentContacts: [] }),
+      expect.objectContaining({ parentName: 'Parent', age: null }),
     );
   });
 

@@ -94,14 +94,14 @@ describe('student-owned portal resources with PostgreSQL', () => {
       data: [
         {
           id: firstStudentId,
-          email: 'shared-parent@example.test',
+          contacts: [{ label: 'Email', value: 'shared-parent@example.test' }],
           telegramChatId: '90001',
           firstName: 'Student',
           lastName: 'One',
         },
         {
           id: secondStudentId,
-          email: 'shared-parent@example.test',
+          contacts: [{ label: 'Email', value: 'shared-parent@example.test' }],
           telegramChatId: '90001',
           firstName: 'Student',
           lastName: 'Two',
@@ -252,14 +252,14 @@ describe('student-owned portal resources with PostgreSQL', () => {
     await prisma.$disconnect();
   });
 
-  it('keeps repeated parent contacts and Telegram IDs independent and scopes lessons, reports, files, balances, and requests to each student', async () => {
+  it('keeps repeated contacts and Telegram IDs independent and scopes lessons, reports, files, balances, and requests to each student', async () => {
     const firstUser = await prisma.user.findUniqueOrThrow({
       where: { id: firstStudentId },
     });
     const secondUser = await prisma.user.findUniqueOrThrow({
       where: { id: secondStudentId },
     });
-    expect(firstUser.email).toBe(secondUser.email);
+    expect(firstUser.contacts).toEqual(secondUser.contacts);
     expect(firstUser.telegramChatId).toBe(secondUser.telegramChatId);
 
     const balances = await prisma.studentProfile.findMany({
@@ -443,8 +443,7 @@ describe('student-owned portal resources with PostgreSQL', () => {
       lastName: 'One',
       login: longLogin,
       password: 'portal-password-one',
-      email: 'same-contact@example.test',
-      parentContacts: [{ label: 'Email', value: 'same-contact@example.test' }],
+      contacts: [{ label: 'Email', value: 'same-contact@example.test' }],
     });
     expect(await validate(validDto)).toHaveLength(0);
     const invalidLongLogin = plainToInstance(CreateStudentDto, {
@@ -464,10 +463,7 @@ describe('student-owned portal resources with PostgreSQL', () => {
         lastName: 'Two',
         login: 'portal-student-two',
         password: 'portal-password-two',
-        email: 'same-contact@example.test',
-        parentContacts: [
-          { label: 'Email', value: 'same-contact@example.test' },
-        ],
+        contacts: [{ label: 'Email', value: 'same-contact@example.test' }],
       }),
     );
     serviceCreatedStudentIds.push(createdFirst.id, createdSecond.id);

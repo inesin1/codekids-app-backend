@@ -43,11 +43,14 @@ async function main() {
   if (!login || !password) {
     throw new Error('SEED_ADMIN_LOGIN and SEED_ADMIN_PASSWORD are required');
   }
+  const seedAdminEmail = process.env['SEED_ADMIN_EMAIL']?.trim();
 
   const admin = await prisma.user.create({
     data: {
       login,
-      email: process.env['SEED_ADMIN_EMAIL'],
+      contacts: seedAdminEmail
+        ? [{ label: 'Email', value: seedAdminEmail }]
+        : undefined,
       password: await bcrypt.hash(password, 10),
       firstName: 'Tech',
       lastName: 'Admin',

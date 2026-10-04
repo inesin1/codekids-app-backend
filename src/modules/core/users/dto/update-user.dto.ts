@@ -12,12 +12,9 @@ import {
   MaxLength,
   MinLength,
   ValidateIf,
-  ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
 import { Role } from '../../../../generated/client';
 import { CreateUserDto } from './create-user.dto';
-import { ContactDto } from './contact.dto';
 
 export class UpdateUserDto extends PartialType(
   OmitType(CreateUserDto, ['password', 'login']),
@@ -53,10 +50,4 @@ export class UpdateUserDto extends PartialType(
   @IsString()
   @MaxLength(201)
   parentName?: string;
-
-  @IsOptional()
-  @ValidateNested({ each: true })
-  @Type(() => ContactDto)
-  @ArrayMaxSize(30)
-  parentContacts?: ContactDto[];
 }

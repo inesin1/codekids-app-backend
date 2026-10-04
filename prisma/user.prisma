@@ -10,17 +10,16 @@ enum Role {
 }
 
 model User {
-  id        String   @id @default(cuid())
+  id         String    @id @default(cuid())
   login      String?   @unique // null = пользователь без доступа в ЛК
-  email      String? // контактный email, может повторяться
-  contacts  Json? // [{ id, label, value }] — кастомные контакты (телефон, мессенджеры и т.д.)
-  password  String? // null = вход в ЛК недоступен
+  contacts   Json? // [{ id, label, value }] — контакты, включая email
+  password   String? // null = вход в ЛК недоступен
   securityVersion Int @default(0)
-  firstName String
-  lastName  String
+  firstName  String
+  lastName   String
   // Только ADMIN/MANAGER. Участие TEACHER/STUDENT определяется наличием профиля
-  staffRoles Role[]  @default([])
-  isActive   Boolean @default(true)
+  staffRoles Role[]    @default([])
+  isActive   Boolean   @default(true)
   avatarUrl  String?
   birthDate  DateTime? @db.Date
 
@@ -37,10 +36,10 @@ model User {
   studentProfile StudentProfile?
 
   // Общие связи
-  refreshTokens     RefreshToken[]
-  auditLogs         AuditLog[]
-  telegramLinkTokens TelegramLinkToken[]
-  rescheduleRequestsCreated RescheduleRequest[] @relation("RescheduleCreatedBy")
+  refreshTokens              RefreshToken[]
+  auditLogs                  AuditLog[]
+  telegramLinkTokens         TelegramLinkToken[]
+  rescheduleRequestsCreated  RescheduleRequest[] @relation("RescheduleCreatedBy")
   rescheduleRequestsResolved RescheduleRequest[] @relation("RescheduleResolvedBy")
 
   @@index([telegramChatId])
@@ -55,10 +54,10 @@ model TeacherProfile {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Связки «преподаватель — ученик» с индивидуальными ставками
-  enrollments      Enrollment[]
+  enrollments       Enrollment[]
   scheduleTemplates ScheduleTemplate[]
-  lessons          Lesson[]
-  payouts          Payout[]
+  lessons           Lesson[]
+  payouts           Payout[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -74,7 +73,6 @@ model StudentProfile {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   parentName     String?
-  parentContacts Json? // [{ id, label, value }]
   balance        Decimal @default(0) @db.Decimal(12, 2)
 
   enrollments       Enrollment[]

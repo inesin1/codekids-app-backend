@@ -31,7 +31,6 @@ describe('AuthService', () => {
   const currentUser = () => ({
     id: 'u1',
     login: 'learner',
-    email: 'family@example.test',
     password: 'password-hash',
     securityVersion: 7,
     isActive: true,

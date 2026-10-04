@@ -157,7 +157,7 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - name: q
           in: query
-          description: Поиск по firstName/lastName/email (case-insensitive)
+          description: Поиск по имени, фамилии, логину или email-контактам (case-insensitive)
           schema:
             type: string
         - name: isActive
@@ -201,7 +201,7 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - name: q
           in: query
-          description: Поиск по firstName/lastName/email (case-insensitive)
+          description: Поиск по имени, фамилии, логину или email-контактам (case-insensitive)
           schema:
             type: string
         - name: isActive
@@ -1579,10 +1579,6 @@ components:
         login:
           type: string
           maxLength: 254
-        email:
-          type: string
-          format: email
-          description: Contact email; it is not used for login and may be shared.
         password:
           type: string
           minLength: 8
@@ -1616,10 +1612,6 @@ components:
           type: string
           minLength: 8
           maxLength: 128
-        email:
-          type: string
-          format: email
-          description: Contact email; it is not used for login and may be shared.
         firstName:
           type: string
           maxLength: 100
@@ -1636,11 +1628,6 @@ components:
         parentName:
           type: string
           maxLength: 201
-        parentContacts:
-          type: array
-          maxItems: 30
-          items:
-            $ref: '#/components/schemas/ContactDto'
         birthDate:
           type: string
           format: date-time
@@ -1673,10 +1660,6 @@ components:
           nullable: true
           minLength: 8
           maxLength: 128
-        email:
-          type: string
-          format: email
-          nullable: true
         birthDate:
           type: string
           format: date-time
@@ -1702,11 +1685,6 @@ components:
         parentName:
           type: string
           maxLength: 201
-        parentContacts:
-          type: array
-          maxItems: 30
-          items:
-            $ref: '#/components/schemas/ContactDto'
 
     User:
       type: object
@@ -1717,9 +1695,6 @@ components:
         id:
           type: string
         login:
-          type: string
-          nullable: true
-        email:
           type: string
           nullable: true
         firstName:
@@ -1784,10 +1759,6 @@ components:
         parentName:
           type: string
           nullable: true
-        parentContacts:
-          type: array
-          items:
-            $ref: '#/components/schemas/ContactDto'
         balance:
           type: string
           description: Decimal(12,2) student balance; may be negative. Omitted from teacher student lists.

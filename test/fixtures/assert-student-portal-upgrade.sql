@@ -14,6 +14,10 @@ BEGIN
      )
      OR EXISTS (
        SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'student_profiles' AND column_name = 'parentContacts'
+     )
+     OR EXISTS (
+       SELECT 1 FROM information_schema.columns
        WHERE table_schema = 'public' AND table_name IN ('payments', 'transactions') AND column_name = 'parentId'
      ) THEN
     RAISE EXCEPTION 'Obsolete parent profile or parentId schema remains active';
@@ -64,12 +68,13 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (
-    SELECT 1 FROM "student_profiles"
-    WHERE "userId" = child_no_access."id"
-      AND "parentName" = 'Legacy Parent'
-      AND "parentContacts" @> '[{"label":"Phone","value":"+10000000001"},{"label":"Email","value":"parent-only@example.test"}]'::jsonb
+    SELECT 1 FROM "student_profiles" AS sp
+    JOIN "users" AS u ON u."id" = sp."userId"
+    WHERE sp."userId" = child_no_access."id"
+      AND sp."parentName" = 'Legacy Parent'
+      AND u."contacts" @> '[{"label":"Phone","value":"+10000000001"},{"label":"Email","value":"parent-only@example.test"}]'::jsonb
   ) THEN
-    RAISE EXCEPTION 'Parent contacts were not copied into the student profile';
+    RAISE EXCEPTION 'Contacts were not unified on the user';
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM "payments" WHERE "id" = 'legacy_payment' AND "studentId" = 'legacy_child_no_access')

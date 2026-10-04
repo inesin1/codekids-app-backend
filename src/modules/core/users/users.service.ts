@@ -60,7 +60,6 @@ export class UsersService {
       ...user,
       studentProfile: {
         ...studentProfile,
-        parentContacts: studentProfile.parentContacts ?? [],
         age: user.birthDate ? UsersService.calculateAge(user.birthDate) : null,
       },
     };
@@ -174,7 +173,6 @@ export class UsersService {
     const {
       birthDate,
       parentName,
-      parentContacts,
       password,
       login,
       ...userData
@@ -191,7 +189,6 @@ export class UsersService {
             studentProfile: {
               create: {
                 parentName,
-                parentContacts: this.normalizeContacts(parentContacts),
               },
             },
             ...(birthDate && { birthDate: new Date(birthDate) }),
@@ -266,8 +263,9 @@ export class UsersService {
   }
 
   async findAllStudents(query: ListStudentsQueryDto, hideBalance = false) {
+    const search = await this.searchFilter(query.q);
     const where: Prisma.UserWhereInput = {
-      ...this.searchFilter(query.q),
+      ...search,
       ...(query.isActive != null && { isActive: query.isActive }),
       studentProfile: query.teacherId
         ? {
@@ -286,7 +284,6 @@ export class UsersService {
             select: {
               userId: true,
               parentName: true,
-              parentContacts: true,
               createdAt: true,
               updatedAt: true,
               telegramGroup: { select: { isActive: true } },
@@ -315,9 +312,10 @@ export class UsersService {
   }
 
   async findAllTeachers(query: ListUsersQueryDto) {
+    const search = await this.searchFilter(query.q);
     const where: Prisma.UserWhereInput = {
       teacherProfile: { isNot: null },
-      ...this.searchFilter(query.q),
+      ...search,
       ...(query.isActive != null && { isActive: query.isActive }),
     };
     const [teachers, total] = await Promise.all([
@@ -338,14 +336,32 @@ export class UsersService {
     );
   }
 
-  private searchFilter(q?: string): Prisma.UserWhereInput {
+  private async searchFilter(q?: string): Promise<Prisma.UserWhereInput> {
     if (!q) return {};
+    const emailContacts = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT u."id"
+      FROM "users" AS u
+      WHERE EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(
+          CASE
+            WHEN jsonb_typeof(u."contacts") = 'array' THEN u."contacts"
+            ELSE '[]'::jsonb
+          END
+        ) AS contact(item)
+        WHERE (
+          strpos(lower(COALESCE(contact.item ->> 'label', '')), 'mail') > 0
+          OR strpos(lower(COALESCE(contact.item ->> 'label', '')), 'почт') > 0
+        )
+        AND strpos(lower(COALESCE(contact.item ->> 'value', '')), lower(${q})) > 0
+      )
+    `;
     return {
       OR: [
         { firstName: { contains: q, mode: 'insensitive' } },
         { lastName: { contains: q, mode: 'insensitive' } },
         { login: { contains: q, mode: 'insensitive' } },
-        { email: { contains: q, mode: 'insensitive' } },
+        { id: { in: emailContacts.map(({ id }) => id) } },
       ],
     };
   }
@@ -394,7 +410,6 @@ export class UsersService {
       login,
       password,
       parentName,
-      parentContacts,
       ...userData
     } = dto;
     const hashedPassword =
@@ -415,11 +430,10 @@ export class UsersService {
           throw new NotFoundException('User not found');
         }
 
-        const hasStudentProfileUpdate =
-          parentName !== undefined || parentContacts !== undefined;
+        const hasStudentProfileUpdate = parentName !== undefined;
         if (hasStudentProfileUpdate && !current.studentProfile) {
           throw new BadRequestException(
-            'Parent contacts can only be updated for a student',
+            'Student fields can only be updated for a student',
           );
         }
 
@@ -448,9 +462,6 @@ export class UsersService {
             studentProfile: {
               update: {
                 ...(parentName !== undefined && { parentName }),
-                ...(parentContacts !== undefined && {
-                  parentContacts: this.normalizeContacts(parentContacts),
-                }),
               },
             },
           }),
