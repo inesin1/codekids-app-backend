@@ -32,7 +32,7 @@ describe('AnalyticsService', () => {
     const lessonFindManyCalls = prisma.lesson.findMany.mock
       .calls as unknown as [{ where: Record<string, unknown> }][];
     expect(lessonFindManyCalls[0][0].where).toMatchObject({
-      completedAt: {
+      scheduledAt: {
         gte: new Date('2025-12-31T21:00:00.000Z'),
         lt: new Date('2026-12-31T21:00:00.000Z'),
       },

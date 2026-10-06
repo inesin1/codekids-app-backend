@@ -43,7 +43,7 @@ export class AnalyticsService {
           teacherRate: true,
           report: { select: { bonusApplied: true, bonusAmount: true } },
         },
-        orderBy: [{ completedAt: 'asc' }, { id: 'asc' }],
+        orderBy: [{ scheduledAt: 'asc' }, { id: 'asc' }],
       }),
       topupWhere
         ? this.prisma.payment.aggregate({
@@ -140,7 +140,7 @@ export class AnalyticsService {
   ): Prisma.LessonWhereInput {
     return {
       status: LessonStatus.COMPLETED,
-      completedAt: { gte: range.start, lt: range.endExclusive },
+      scheduledAt: { gte: range.start, lt: range.endExclusive },
       ...(query.teacherId ? { teacherId: query.teacherId } : {}),
       ...(query.studentId ? { studentId: query.studentId } : {}),
     };

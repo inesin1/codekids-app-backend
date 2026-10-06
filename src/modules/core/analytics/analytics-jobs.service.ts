@@ -83,7 +83,7 @@ export class AnalyticsJobsService {
     const { data, reportType } = job.returnvalue!;
     const sortBy =
       query.sortBy ??
-      (reportType === 'lessons' ? 'completedAt' : 'periodStart');
+      (reportType === 'lessons' ? 'scheduledAt' : 'periodStart');
     if (
       data.length > 0 &&
       !Object.prototype.hasOwnProperty.call(data[0], sortBy)

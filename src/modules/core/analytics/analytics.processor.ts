@@ -27,6 +27,8 @@ export class AnalyticsProcessor {
       report.data,
       job.data.query.dateFrom,
       job.data.query.dateTo,
+      (processedRows, totalRows) =>
+        job.progress(75 + Math.floor((processedRows / totalRows) * 24)),
     );
     await job.progress(100);
     return {

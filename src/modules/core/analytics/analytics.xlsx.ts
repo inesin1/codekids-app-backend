@@ -13,8 +13,10 @@ export async function createAnalyticsWorkbook(
   data: AnalyticsRow[],
   dateFrom: string,
   dateTo: string,
+  onProgress?: (processedRows: number, totalRows: number) => Promise<void>,
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
+  const progressBatchSize = Math.max(10, Math.ceil(data.length / 20));
   const summary = workbook.addWorksheet('Итоги');
   summary.columns = [
     { header: 'Показатель', key: 'label', width: 28 },
@@ -42,7 +44,7 @@ export async function createAnalyticsWorkbook(
     const sheet = workbook.addWorksheet('Занятия');
     sheet.columns = [
       { header: 'Дата занятия', key: 'scheduledAt', width: 24 },
-      { header: 'Отмечено проведенным', key: 'completedAt', width: 28 },
+      { header: 'Дата отметки «Проведено»', key: 'completedAt', width: 28 },
       { header: 'Преподаватель', key: 'teacherName', width: 28 },
       { header: 'Ученик', key: 'studentName', width: 28 },
       { header: 'Курс', key: 'courseName', width: 28 },
@@ -59,7 +61,8 @@ export async function createAnalyticsWorkbook(
     sheet.getColumn('price').numFmt = '#,##0.00';
     sheet.getColumn('teacherRate').numFmt = '#,##0.00';
     sheet.getColumn('bonusAmount').numFmt = '#,##0.00';
-    for (const row of data) {
+    for (let index = 0; index < data.length; index++) {
+      const row = data[index];
       sheet.addRow([
         toExcelBusinessTime(row.scheduledAt),
         toExcelBusinessTime(row.completedAt),
@@ -71,6 +74,14 @@ export async function createAnalyticsWorkbook(
         row.teacherRate == null ? '' : Number(row.teacherRate),
         Number(row.bonusAmount),
       ]);
+      const processedRows = index + 1;
+      if (
+        data.length >= progressBatchSize &&
+        (processedRows % progressBatchSize === 0 ||
+          processedRows === data.length)
+      ) {
+        await onProgress?.(processedRows, data.length);
+      }
     }
   } else {
     const payoutSummary = summaryData as Extract<
@@ -102,7 +113,8 @@ export async function createAnalyticsWorkbook(
     sheet.getColumn('bonusPay').numFmt = '#,##0.00';
     sheet.getColumn('totalPay').numFmt = '#,##0.00';
     sheet.getColumn('paidAt').numFmt = 'dd.mm.yyyy hh:mm';
-    for (const row of data) {
+    for (let index = 0; index < data.length; index++) {
+      const row = data[index];
       sheet.addRow([
         row.teacherName,
         toExcelBusinessTime(row.periodStart),
@@ -113,6 +125,14 @@ export async function createAnalyticsWorkbook(
         row.status === 'PAID' ? 'Выплачено' : 'Начислено',
         row.paidAt == null ? null : toExcelBusinessTime(row.paidAt),
       ]);
+      const processedRows = index + 1;
+      if (
+        data.length >= progressBatchSize &&
+        (processedRows % progressBatchSize === 0 ||
+          processedRows === data.length)
+      ) {
+        await onProgress?.(processedRows, data.length);
+      }
     }
   }
   return Buffer.from(await workbook.xlsx.writeBuffer());
