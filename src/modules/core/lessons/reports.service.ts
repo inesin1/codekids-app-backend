@@ -159,7 +159,12 @@ export class ReportsService {
         where: { id: identity.id },
         include: {
           lesson: {
-            select: { teacherId: true, status: true, completedAt: true },
+            select: {
+              teacherId: true,
+              status: true,
+              completedAt: true,
+              scheduledAt: true,
+            },
           },
         },
       });
@@ -196,8 +201,8 @@ export class ReportsService {
         const finalizedPayout = await tx.payout.findFirst({
           where: {
             teacherId: report.lesson.teacherId,
-            periodStart: { lte: report.lesson.completedAt },
-            periodEnd: { gt: report.lesson.completedAt },
+            periodStart: { lte: report.lesson.scheduledAt },
+            periodEnd: { gt: report.lesson.scheduledAt },
           },
           select: { id: true },
         });

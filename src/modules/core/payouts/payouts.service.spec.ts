@@ -85,7 +85,8 @@ describe('PayoutsService.calculate', () => {
       events.push('lessons');
       return Promise.resolve([
         {
-          completedAt: new Date('2026-06-15T10:00:00.000Z'),
+          scheduledAt: new Date('2026-06-15T10:00:00.000Z'),
+          completedAt: new Date('2026-07-02T10:00:00.000Z'),
           teacherRate: new Prisma.Decimal('100.10'),
           report: {
             bonusApplied: true,
@@ -93,6 +94,7 @@ describe('PayoutsService.calculate', () => {
           },
         },
         {
+          scheduledAt: new Date('2026-06-16T10:00:00.000Z'),
           completedAt: new Date('2026-06-16T10:00:00.000Z'),
           teacherRate: new Prisma.Decimal('0.20'),
           report: null,
@@ -150,14 +152,14 @@ describe('PayoutsService.calculate', () => {
     expect(notifier.payoutChanged).toHaveBeenCalledWith('p1', tx);
   });
 
-  it('uses the half-open lesson interval [start, end)', async () => {
+  it('uses the half-open scheduled lesson interval [start, end)', async () => {
     await service.calculate(dto);
 
     expect(tx.lesson.findMany).toHaveBeenCalledWith({
       where: {
         teacherId: dto.teacherId,
         status: 'COMPLETED',
-        completedAt: {
+        scheduledAt: {
           gte: new Date(dto.periodStart),
           lt: new Date(dto.periodEnd),
         },
@@ -183,6 +185,7 @@ describe('PayoutsService.calculate', () => {
   it('rejects payout while any included lesson is still in its bonus window', async () => {
     tx.lesson.findMany.mockResolvedValue([
       {
+        scheduledAt: new Date('2026-10-02T09:30:00.000Z'),
         completedAt: new Date('2026-10-02T09:30:00.000Z'),
         teacherRate: new Prisma.Decimal('100'),
         report: null,
@@ -222,6 +225,24 @@ describe('PayoutsService.calculate', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(prisma.lesson.findMany).not.toHaveBeenCalled();
+  });
+
+  it('selects bulk payout teachers by scheduled lesson date', async () => {
+    prisma.lesson.findMany.mockResolvedValue([{ teacherId: 't1' }]);
+
+    await service.calculateAll(dto);
+
+    expect(prisma.lesson.findMany).toHaveBeenCalledWith({
+      where: {
+        status: 'COMPLETED',
+        scheduledAt: {
+          gte: new Date(dto.periodStart),
+          lt: new Date(dto.periodEnd),
+        },
+      },
+      select: { teacherId: true },
+      distinct: ['teacherId'],
+    });
   });
 
   it('rolls back the payout path when mandatory audit persistence fails', async () => {

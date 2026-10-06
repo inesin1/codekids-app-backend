@@ -34,6 +34,7 @@ model User {
   // Ролевые профили — источник правды об участии в домене
   teacherProfile TeacherProfile?
   studentProfile StudentProfile?
+  avatar         UserAvatar?
 
   // Общие связи
   refreshTokens              RefreshToken[]
@@ -44,6 +45,16 @@ model User {
 
   @@index([telegramChatId])
   @@map("users")
+}
+
+model UserAvatar {
+  userId    String   @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mimeType  String
+  data      Bytes
+  updatedAt DateTime @updatedAt
+
+  @@map("user_avatars")
 }
 
 // ---------------------------------------------------------------------------

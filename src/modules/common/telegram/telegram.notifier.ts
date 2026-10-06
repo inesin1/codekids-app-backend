@@ -99,12 +99,11 @@ export class TelegramNotifier {
     const { lesson } = report;
 
     const fields: [string, string | null][] = [
-      ['Тема', report.topic],
-      ['Что делали', report.covered],
-      ['Итог', report.results],
-      ['Домашнее задание', report.homework],
-      ['Следующий шаг', report.recommendations],
-      ['Комментарий для родителя', report.parentComment],
+      ['Тема занятия', report.topic],
+      ['Что сделано на занятии', report.covered],
+      ['Успехи и сложности', report.results],
+      ['Домашнее задание', report.homework ? `Есть — ${report.homework}` : 'Нет'],
+      ['Дополнительная информация', report.parentComment],
     ];
     const reportBody = fields
       .filter(([, value]) => value)
@@ -112,8 +111,9 @@ export class TelegramNotifier {
       .join('\n\n');
     const text = [
       '📝 <b>Отчёт по занятию</b>',
-      this.header(lesson),
-      `👩‍🏫 ${fullName(lesson.teacher.user)}`,
+      `👤 <b>Ученик:</b> ${fullName(lesson.student.user)}`,
+      `📚 <b>Курс:</b> ${esc(lesson.enrollment.course.name)}`,
+      `🗓 <b>Дата:</b> ${formatDateTime(lesson.scheduledAt)} (МСК)`,
       '',
       reportBody,
       ...(edited

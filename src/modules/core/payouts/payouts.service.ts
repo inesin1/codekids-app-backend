@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -41,7 +42,7 @@ export class PayoutsService {
   }
 
   /** Рассчитывает и сохраняет выплату преподавателю за указанный период. */
-  async calculate(dto: CalculatePayoutDto) {
+  async calculate(dto: CalculatePayoutDto, expectedPreviewToken?: string) {
     const periodStart = new Date(dto.periodStart);
     const periodEnd = new Date(dto.periodEnd);
 
@@ -57,53 +58,21 @@ export class PayoutsService {
         throw new BadRequestException('Payout period is not closed');
       }
 
-      const existing = await tx.payout.findFirst({
-        where: {
-          teacherId: dto.teacherId,
-          periodStart: { lt: periodEnd },
-          periodEnd: { gt: periodStart },
-        },
-      });
-      if (existing) {
-        throw new ConflictException(
-          'Payout already exists for overlapping period',
-        );
-      }
-
-      const lessons = await tx.lesson.findMany({
-        where: {
-          teacherId: dto.teacherId,
-          status: LessonStatus.COMPLETED,
-          completedAt: { gte: periodStart, lt: periodEnd },
-        },
-        include: { report: true },
-      });
-
+      const calculation = await this.calculatePeriod(
+        tx,
+        dto.teacherId,
+        periodStart,
+        periodEnd,
+        now,
+      );
       if (
-        lessons.some(
-          (lesson) =>
-            !lesson.completedAt ||
-            lesson.completedAt.getTime() + this.bonusWindowMs > now.getTime(),
-        )
+        expectedPreviewToken !== undefined &&
+        calculation.previewToken !== expectedPreviewToken
       ) {
         throw new ConflictException(
-          'Bonus windows have not closed for all lessons in this period',
+          'Payout data changed; calculate the payout again',
         );
       }
-
-      const basePay = lessons.reduce(
-        (sum, l) => sum.add(l.teacherRate ?? new Prisma.Decimal(0)),
-        new Prisma.Decimal(0),
-      );
-
-      const bonusPay = lessons.reduce((sum, l) => {
-        if (l.report?.bonusApplied && l.report.bonusAmount) {
-          return sum.add(l.report.bonusAmount);
-        }
-        return sum;
-      }, new Prisma.Decimal(0));
-
-      const totalPay = basePay.add(bonusPay);
 
       let payout: Awaited<ReturnType<typeof tx.payout.create>>;
       try {
@@ -112,9 +81,9 @@ export class PayoutsService {
             teacherId: dto.teacherId,
             periodStart,
             periodEnd,
-            basePay,
-            bonusPay,
-            totalPay,
+            basePay: calculation.basePay,
+            bonusPay: calculation.bonusPay,
+            totalPay: calculation.totalPay,
           },
           include: payoutInclude,
         });
@@ -147,6 +116,44 @@ export class PayoutsService {
     });
   }
 
+  /** Рассчитывает выплату без сохранения и возвращает токен для подтверждения. */
+  async preview(dto: CalculatePayoutDto) {
+    const periodStart = new Date(dto.periodStart);
+    const periodEnd = new Date(dto.periodEnd);
+
+    if (periodStart >= periodEnd) {
+      throw new BadRequestException('periodStart must be before periodEnd');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockTeacherProfile(tx, dto.teacherId);
+
+      const now = new Date();
+      if (periodEnd > now) {
+        throw new BadRequestException('Payout period is not closed');
+      }
+
+      const calculation = await this.calculatePeriod(
+        tx,
+        dto.teacherId,
+        periodStart,
+        periodEnd,
+        now,
+      );
+
+      return {
+        teacherId: dto.teacherId,
+        periodStart,
+        periodEnd,
+        lessonCount: calculation.lessonCount,
+        basePay: calculation.basePay.toString(),
+        bonusPay: calculation.bonusPay.toString(),
+        totalPay: calculation.totalPay.toString(),
+        previewToken: calculation.previewToken,
+      };
+    });
+  }
+
   /** Рассчитывает выплаты за период для всех преподавателей с проведенными уроками. */
   async calculateAll(dto: CalculateAllPayoutsDto) {
     const periodStart = new Date(dto.periodStart);
@@ -163,7 +170,7 @@ export class PayoutsService {
       .findMany({
         where: {
           status: LessonStatus.COMPLETED,
-          completedAt: { gte: periodStart, lt: periodEnd },
+          scheduledAt: { gte: periodStart, lt: periodEnd },
         },
         select: { teacherId: true },
         distinct: ['teacherId'],
@@ -200,8 +207,8 @@ export class PayoutsService {
     filters: {
       teacherId?: string;
       status?: PayoutStatus;
-      periodStart?: string;
-      periodEnd?: string;
+      createdAtFrom?: string;
+      createdAtTo?: string;
       page: number;
       limit: number;
     },
@@ -211,11 +218,11 @@ export class PayoutsService {
 
     if (filters.teacherId) where.teacherId = filters.teacherId;
     if (filters.status) where.status = filters.status;
-    if (filters.periodStart) {
-      where.periodStart = { gte: new Date(filters.periodStart) };
-    }
-    if (filters.periodEnd) {
-      where.periodEnd = { lte: new Date(filters.periodEnd) };
+    if (filters.createdAtFrom || filters.createdAtTo) {
+      where.createdAt = {
+        ...(filters.createdAtFrom && { gte: new Date(filters.createdAtFrom) }),
+        ...(filters.createdAtTo && { lt: new Date(filters.createdAtTo) }),
+      };
     }
 
     if (scope?.teacherUserId) {
@@ -226,7 +233,7 @@ export class PayoutsService {
       this.prisma.payout.findMany({
         where,
         include: payoutInclude,
-        orderBy: [{ periodStart: 'desc' }, { id: 'desc' }],
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         ...paginationArgs(filters),
       }),
       this.prisma.payout.count({ where }),
@@ -234,8 +241,8 @@ export class PayoutsService {
     return paginated(data, total, filters, '/api/payouts', {
       teacherId: filters.teacherId,
       status: filters.status,
-      periodStart: filters.periodStart,
-      periodEnd: filters.periodEnd,
+      createdAtFrom: filters.createdAtFrom,
+      createdAtTo: filters.createdAtTo,
     });
   }
 
@@ -297,5 +304,93 @@ export class PayoutsService {
     `;
     if (!profiles.length)
       throw new NotFoundException('Teacher profile not found');
+  }
+
+  /** Validates the period and creates a stable token for its calculated amounts. */
+  private async calculatePeriod(
+    tx: Prisma.TransactionClient,
+    teacherId: string,
+    periodStart: Date,
+    periodEnd: Date,
+    now: Date,
+  ) {
+    const existing = await tx.payout.findFirst({
+      where: {
+        teacherId,
+        periodStart: { lt: periodEnd },
+        periodEnd: { gt: periodStart },
+      },
+    });
+    if (existing) {
+      throw new ConflictException(
+        'Payout already exists for overlapping period',
+      );
+    }
+
+    const lessons = await tx.lesson.findMany({
+      where: {
+        teacherId,
+        status: LessonStatus.COMPLETED,
+        scheduledAt: { gte: periodStart, lt: periodEnd },
+      },
+      include: { report: true },
+    });
+
+    if (
+      lessons.some(
+        (lesson) =>
+          !lesson.completedAt ||
+          lesson.completedAt.getTime() + this.bonusWindowMs > now.getTime(),
+      )
+    ) {
+      throw new ConflictException(
+        'Bonus windows have not closed for all lessons in this period',
+      );
+    }
+
+    const zero = new Prisma.Decimal(0);
+    const amounts = lessons.map((lesson) => ({
+      id: lesson.id,
+      scheduledAt: lesson.scheduledAt.toISOString(),
+      basePay: lesson.teacherRate ?? zero,
+      bonusPay:
+        lesson.report?.bonusApplied && lesson.report.bonusAmount
+          ? lesson.report.bonusAmount
+          : zero,
+    }));
+    const basePay = amounts.reduce(
+      (sum, lesson) => sum.add(lesson.basePay),
+      zero,
+    );
+    const bonusPay = amounts.reduce(
+      (sum, lesson) => sum.add(lesson.bonusPay),
+      zero,
+    );
+    const tokenLessons = [...amounts]
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .map((lesson) => [
+        lesson.id,
+        lesson.scheduledAt,
+        lesson.basePay.toString(),
+        lesson.bonusPay.toString(),
+      ]);
+    const previewToken = createHash('sha256')
+      .update(
+        JSON.stringify([
+          teacherId,
+          periodStart.toISOString(),
+          periodEnd.toISOString(),
+          tokenLessons,
+        ]),
+      )
+      .digest('hex');
+
+    return {
+      lessonCount: lessons.length,
+      basePay,
+      bonusPay,
+      totalPay: basePay.add(bonusPay),
+      previewToken,
+    };
   }
 }

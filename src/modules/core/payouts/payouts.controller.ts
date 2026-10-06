@@ -3,6 +3,8 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
@@ -13,6 +15,7 @@ import { Role } from '../../../generated/client';
 import { Roles } from '../../common/auth/decorators/roles.decorator';
 import { PayoutsService } from './payouts.service';
 import { CalculatePayoutDto } from './dto/calculate-payout.dto';
+import { SavePayoutDto } from './dto/save-payout.dto';
 import { CalculateAllPayoutsDto } from './dto/calculate-all-payouts.dto';
 import { FindPayoutsDto } from './dto/find-payouts.dto';
 
@@ -21,9 +24,16 @@ export class PayoutsController {
   constructor(private readonly payoutsService: PayoutsService) {}
 
   @Roles(Role.ADMIN, Role.MANAGER)
+  @Post('preview')
+  @HttpCode(HttpStatus.OK)
+  preview(@Body() dto: CalculatePayoutDto) {
+    return this.payoutsService.preview(dto);
+  }
+
+  @Roles(Role.ADMIN, Role.MANAGER)
   @Post('calculate')
-  calculate(@Body() dto: CalculatePayoutDto) {
-    return this.payoutsService.calculate(dto);
+  calculate(@Body() dto: SavePayoutDto) {
+    return this.payoutsService.calculate(dto, dto.previewToken);
   }
 
   @Roles(Role.ADMIN, Role.MANAGER)

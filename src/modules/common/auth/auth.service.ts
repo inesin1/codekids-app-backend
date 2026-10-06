@@ -113,6 +113,48 @@ export class AuthService {
     await this.prisma.refreshToken.deleteMany({ where: { tokenHash } });
   }
 
+  async changePassword(userId: string, password: string) {
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockUser(tx, userId);
+      const current = await tx.user.findUnique({
+        where: { id: userId },
+        omit: { password: false, securityVersion: false },
+        include: UsersService.profileExists,
+      });
+      if (!current?.isActive) {
+        throw new UnauthorizedException('Пользователь неактивен');
+      }
+
+      const roles = UsersService.resolveRoles(current);
+      if (!roles.length) {
+        throw new UnauthorizedException(
+          'У пользователя нет доступа к кабинету',
+        );
+      }
+
+      const updated = await tx.user.update({
+        where: { id: userId },
+        data: {
+          password: hashedPassword,
+          securityVersion: { increment: 1 },
+        },
+        omit: { password: false, securityVersion: false },
+        include: UsersService.profileExists,
+      });
+      await tx.refreshToken.deleteMany({ where: { userId } });
+
+      const tokens = await this.generateTokens(
+        userId,
+        roles,
+        updated.securityVersion,
+        tx,
+      );
+      return { ...tokens, user: this.safeUser(updated, roles) };
+    });
+  }
+
   private async generateTokens(
     userId: string,
     roles: Role[],

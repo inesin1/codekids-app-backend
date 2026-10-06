@@ -1,15 +1,21 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
   ForbiddenException,
   Get,
+  Header,
   Param,
   Patch,
   Post,
   Query,
   Req,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Role } from '../../../generated/client';
 import { Roles } from '../../common/auth/decorators/roles.decorator';
 import { UsersService } from './users.service';
@@ -81,6 +87,38 @@ export class UsersController {
       throw new ForbiddenException();
     }
     return this.usersService.findById(id);
+  }
+
+  @Post('me/avatar')
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
+  uploadAvatar(
+    @Req() req: Express.Request,
+    @UploadedFile()
+    file?: { buffer: Buffer },
+  ) {
+    if (!file?.buffer.length)
+      throw new BadRequestException('Image file is required');
+    return this.usersService.uploadAvatar(
+      req.user!.id,
+      Uint8Array.from(file.buffer),
+    );
+  }
+
+  @Header('Cache-Control', 'private, no-store')
+  @Header('X-Content-Type-Options', 'nosniff')
+  @Get(':id/avatar')
+  async getAvatar(@Req() req: Express.Request, @Param('id') id: string) {
+    const { id: userId, roles } = req.user!;
+    const isStaff = roles.includes(Role.ADMIN) || roles.includes(Role.MANAGER);
+    if (!isStaff && id !== userId) throw new ForbiddenException();
+
+    const avatar = await this.usersService.findAvatar(id);
+    return new StreamableFile(Buffer.from(avatar.data), {
+      type: avatar.mimeType,
+      disposition: 'inline',
+    });
   }
 
   @Roles(Role.ADMIN)

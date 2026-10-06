@@ -175,7 +175,9 @@ describe('TelegramNotifier transactional events', () => {
     expect(reportEvent?.occurrenceKey).toBe('report');
     expect(reportEvent?.type).toBe(NotificationType.LESSON_REPORT);
     expect(reportEvent?.entityId).toBe('r1');
-    expect(reportEvent?.text).toContain('<b>Тема:</b> Циклы');
+    expect(reportEvent?.text).toContain('<b>Тема занятия:</b> Циклы');
+    expect(reportEvent?.text).toContain('<b>Домашнее задание:</b> Нет');
+    expect(reportEvent?.text).not.toContain('Следующий шаг');
 
     const materialEvent = telegram.enqueue.mock.calls[1]?.[0];
     expect(materialEvent?.recipient).toEqual({

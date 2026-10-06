@@ -130,6 +130,28 @@ paths:
         '204':
           description: Logged out
 
+  /auth/password:
+    patch:
+      tags: [Auth]
+      summary: Change the current user's password
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordDto'
+      responses:
+        '200':
+          description: Password changed; current session is renewed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid or revoked session
+
   # ── Users ───────────────────────────────────────────────────────────────────
   /users/teachers:
     post:
@@ -319,6 +341,63 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
+
+  /users/me/avatar:
+    post:
+      tags: [Users]
+      summary: Upload the current user's profile photo
+      description: 'Maximum file size: 5 MB. Supported formats: JPEG, PNG, WebP.'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [avatarUrl]
+                properties:
+                  avatarUrl:
+                    type: string
+        '400':
+          description: Missing file or unsupported image format
+
+  /users/{id}/avatar:
+    get:
+      tags: [Users]
+      summary: Get a user's profile photo
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Image bytes
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '403':
+          description: Access denied
+        '404':
+          description: Avatar not found
 
   /users/{studentId}/payments:
     post:
@@ -1030,17 +1109,40 @@ paths:
                 $ref: '#/components/schemas/RescheduleRequest'
 
   # ── Payouts ─────────────────────────────────────────────────────────────────
-  /payouts/calculate:
+  /payouts/preview:
     post:
       tags: [Payouts]
-      summary: Calculate payout for a teacher
-      description: 'Roles: ADMIN, MANAGER. Aggregates completed lessons + report bonuses.'
+      summary: Preview payout totals without saving
+      description: 'Roles: ADMIN, MANAGER. Uses completed lessons selected by scheduledAt and returns a token to validate the result on save.'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/CalculatePayoutDto'
+      responses:
+        '200':
+          description: Calculation preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayoutPreview'
+        '400':
+          description: Period is invalid or has not closed
+        '409':
+          description: An overlapping payout exists or a lesson bonus window is still open
+
+  /payouts/calculate:
+    post:
+      tags: [Payouts]
+      summary: Calculate payout for a teacher
+      description: 'Roles: ADMIN, MANAGER. Uses completed lessons in the scheduledAt range plus report bonuses.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavePayoutDto'
       responses:
         '201':
           description: Payout created
@@ -1049,9 +1151,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Payout'
         '400':
-          description: periodStart must be before periodEnd
+          description: Period is invalid or has not closed
         '409':
-          description: Payout already exists for overlapping period
+          description: Payout overlaps, preview data changed, or a lesson bonus window is still open
 
   /payouts/calculate-all:
     post:
@@ -1101,12 +1203,12 @@ paths:
           in: query
           schema:
             $ref: '#/components/schemas/PayoutStatus'
-        - name: periodStart
+        - name: createdAtFrom
           in: query
           schema:
             type: string
             format: date-time
-        - name: periodEnd
+        - name: createdAtTo
           in: query
           schema:
             type: string
@@ -1797,6 +1899,15 @@ components:
         refreshToken:
           type: string
 
+    ChangePasswordDto:
+      type: object
+      required: [newPassword]
+      properties:
+        newPassword:
+          type: string
+          minLength: 8
+          maxLength: 128
+
     AuthResponse:
       type: object
       properties:
@@ -2478,6 +2589,44 @@ components:
         periodEnd:
           type: string
           format: date-time
+
+    SavePayoutDto:
+      allOf:
+        - $ref: '#/components/schemas/CalculatePayoutDto'
+        - type: object
+          required: [previewToken]
+          properties:
+            previewToken:
+              type: string
+              pattern: '^[a-f0-9]{64}$'
+
+    PayoutPreview:
+      type: object
+      required: [teacherId, periodStart, periodEnd, lessonCount, basePay, bonusPay, totalPay, previewToken]
+      properties:
+        teacherId:
+          type: string
+        periodStart:
+          type: string
+          format: date-time
+        periodEnd:
+          type: string
+          format: date-time
+        lessonCount:
+          type: integer
+          minimum: 0
+        basePay:
+          type: string
+          description: Exact Decimal string
+        bonusPay:
+          type: string
+          description: Exact Decimal string
+        totalPay:
+          type: string
+          description: Exact Decimal string
+        previewToken:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
 
     CalculateAllPayoutsDto:
       type: object

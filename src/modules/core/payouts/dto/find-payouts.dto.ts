@@ -14,10 +14,10 @@ export class FindPayoutsDto extends PaginationQueryDto {
 
   @IsOptional()
   @IsDateString()
-  periodStart?: string;
+  createdAtFrom?: string;
 
   @IsOptional()
   @IsDateString()
-  @IsDateRangeOrdered('periodStart')
-  periodEnd?: string;
+  @IsDateRangeOrdered('createdAtFrom')
+  createdAtTo?: string;
 }

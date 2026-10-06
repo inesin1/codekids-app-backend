@@ -29,6 +29,7 @@ describe('ReportsService', () => {
   let notifier: { queueReport: jest.Mock };
 
   const now = new Date('2026-09-19T10:00:00.000Z');
+  const scheduledAt = new Date('2026-09-18T13:30:00.000Z');
   const completedAt = new Date(now.getTime() - 60 * 60 * 1000);
 
   beforeEach(() => {
@@ -112,6 +113,7 @@ describe('ReportsService', () => {
           teacherId: 't1',
           status: LessonStatus.COMPLETED,
           completedAt,
+          scheduledAt,
         },
       });
     tx.lessonReport.update.mockResolvedValue({ id: 'r1' });
@@ -138,8 +140,8 @@ describe('ReportsService', () => {
     expect(tx.payout.findFirst).toHaveBeenCalledWith({
       where: {
         teacherId: 't1',
-        periodStart: { lte: completedAt },
-        periodEnd: { gt: completedAt },
+        periodStart: { lte: scheduledAt },
+        periodEnd: { gt: scheduledAt },
       },
       select: { id: true },
     });
@@ -172,6 +174,7 @@ describe('ReportsService', () => {
           teacherId: 't1',
           status: LessonStatus.COMPLETED,
           completedAt,
+          scheduledAt,
         },
       });
     tx.payout.findFirst.mockResolvedValue({ id: 'p1' });

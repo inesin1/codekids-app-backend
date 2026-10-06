@@ -378,6 +378,60 @@ export class UsersService {
     return UsersService.withRoles(this.withStudentAge(user));
   }
 
+  async uploadAvatar(userId: string, data: Uint8Array<ArrayBuffer>) {
+    const mimeType = UsersService.avatarMimeType(data);
+    if (!mimeType) {
+      throw new BadRequestException(
+        'Only JPEG, PNG, and WebP images are supported',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      });
+      if (!user) throw new NotFoundException('User not found');
+
+      const avatar = await tx.userAvatar.upsert({
+        where: { userId },
+        create: { userId, mimeType, data },
+        update: { mimeType, data },
+        select: { updatedAt: true },
+      });
+      const avatarUrl = `/users/${userId}/avatar?v=${avatar.updatedAt.getTime()}`;
+      await tx.user.update({ where: { id: userId }, data: { avatarUrl } });
+      await this.audit.record(
+        {
+          action: 'user.avatar_updated',
+          entityType: 'User',
+          entityId: userId,
+        },
+        tx,
+      );
+      return { avatarUrl };
+    });
+  }
+
+  async findAvatar(userId: string) {
+    const avatar = await this.prisma.userAvatar.findUnique({
+      where: { userId },
+      select: { mimeType: true, data: true },
+    });
+    if (!avatar) throw new NotFoundException('Avatar not found');
+    return avatar;
+  }
+
+  private static avatarMimeType(data: Uint8Array) {
+    const header = String.fromCharCode(...data.subarray(0, 12));
+    if (header.startsWith('\x89PNG\r\n\x1a\n')) return 'image/png';
+    if (header.startsWith('\xff\xd8\xff')) return 'image/jpeg';
+    if (header.slice(0, 4) === 'RIFF' && header.slice(8) === 'WEBP') {
+      return 'image/webp';
+    }
+    return null;
+  }
+
   findByLogin(login: string) {
     return this.prisma.user.findUnique({
       where: { login },
