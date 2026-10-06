@@ -4,7 +4,7 @@ WORKDIR /app
 
 FROM base AS build
 RUN apk add --no-cache python3 make g++
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm exec prisma generate
