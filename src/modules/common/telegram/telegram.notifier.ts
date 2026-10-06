@@ -102,7 +102,10 @@ export class TelegramNotifier {
       ['Тема занятия', report.topic],
       ['Что сделано на занятии', report.covered],
       ['Успехи и сложности', report.results],
-      ['Домашнее задание', report.homework ? `Есть — ${report.homework}` : 'Нет'],
+      [
+        'Домашнее задание',
+        report.homework ? `Есть — ${report.homework}` : 'Нет',
+      ],
       ['Дополнительная информация', report.parentComment],
     ];
     const reportBody = fields

@@ -170,13 +170,7 @@ export class UsersService {
 
   async createStudent(dto: CreateStudentDto) {
     this.assertCredentialPair(dto.login, dto.password);
-    const {
-      birthDate,
-      parentName,
-      password,
-      login,
-      ...userData
-    } = dto;
+    const { birthDate, parentName, password, login, ...userData } = dto;
     const hashedPassword = password ? await bcrypt.hash(password, 10) : null;
     const user = await this.withLoginConflict(() =>
       this.prisma.$transaction(async (tx) => {
@@ -458,14 +452,7 @@ export class UsersService {
       throw new BadRequestException('Unsupported staff role');
     }
 
-    const {
-      birthDate,
-      roles,
-      login,
-      password,
-      parentName,
-      ...userData
-    } = dto;
+    const { birthDate, roles, login, password, parentName, ...userData } = dto;
     const hashedPassword =
       typeof password === 'string'
         ? await bcrypt.hash(password, 10)

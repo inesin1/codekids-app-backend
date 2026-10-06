@@ -311,17 +311,26 @@ describe('LessonsService', () => {
     expect(result.latestCompletedLesson?.id).toBe('old-lesson');
     expect(result.nextLesson?.report?.extraNotes).toBeNull();
     expect(result.latestCompletedLesson?.report?.extraNotes).toBeNull();
-    const queries = prisma.lesson.findFirst.mock.calls.map(([query]) => query);
-    expect(queries[0].where).toEqual({
-      studentId: 'student-1',
-      status: LessonStatus.SCHEDULED,
-      scheduledAt: { gte: expect.any(Date) },
-    });
-    expect(queries[1].where).toEqual({
-      studentId: 'student-1',
-      status: LessonStatus.COMPLETED,
-    });
-    expect(queries[1].orderBy[0]).toEqual({ scheduledAt: 'desc' });
+    expect(prisma.lesson.findFirst).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: {
+          studentId: 'student-1',
+          status: LessonStatus.SCHEDULED,
+          scheduledAt: { gte: expect.any(Date) as unknown as Date },
+        },
+      }),
+    );
+    expect(prisma.lesson.findFirst).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: {
+          studentId: 'student-1',
+          status: LessonStatus.COMPLETED,
+        },
+        orderBy: [{ scheduledAt: 'desc' }],
+      }),
+    );
   });
 
   it('returns null home lessons when the student has no matching records', async () => {
@@ -394,11 +403,10 @@ describe('LessonsService', () => {
         data: { meetingUrlOverride },
       }),
     );
-    expect(JSON.stringify(audit.record.mock.calls[0][0])).not.toContain(
-      meetingUrlOverride,
+    const auditEntry = firstCallArg<Parameters<AuditService['record']>[0]>(
+      audit.record,
     );
-    expect(audit.record.mock.calls[0][0].details).toEqual({
-      meetingUrlOverrideChanged: true,
-    });
+    expect(JSON.stringify(auditEntry)).not.toContain(meetingUrlOverride);
+    expect(auditEntry.details).toEqual({ meetingUrlOverrideChanged: true });
   });
 });

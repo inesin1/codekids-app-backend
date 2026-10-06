@@ -34,7 +34,13 @@ describe('UsersService student access', () => {
           id: 'student-1',
           firstName: 'Alex',
           lastName: 'Kid',
-          contacts: [{ id: 'contact-email', label: 'Email', value: 'family@example.test' }],
+          contacts: [
+            {
+              id: 'contact-email',
+              label: 'Email',
+              value: 'family@example.test',
+            },
+          ],
           birthDate: null,
           isActive: true,
           staffRoles: [],
@@ -53,7 +59,13 @@ describe('UsersService student access', () => {
           id: 'student-1',
           firstName: 'Alex',
           lastName: 'Kid',
-          contacts: [{ id: 'contact-email', label: 'Email', value: 'family@example.test' }],
+          contacts: [
+            {
+              id: 'contact-email',
+              label: 'Email',
+              value: 'family@example.test',
+            },
+          ],
           birthDate: null,
           isActive: true,
           staffRoles: [],

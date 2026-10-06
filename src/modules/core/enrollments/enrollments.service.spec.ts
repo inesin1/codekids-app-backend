@@ -29,11 +29,11 @@ describe('EnrollmentsService', () => {
         data: { meetingUrl },
       }),
     );
-    expect(JSON.stringify(audit.record.mock.calls[0][0])).not.toContain(
-      meetingUrl,
-    );
-    expect(audit.record.mock.calls[0][0].details).toEqual({
-      meetingUrlChanged: true,
-    });
+    const auditCalls = audit.record.mock.calls as unknown as [
+      [Parameters<AuditService['record']>[0]],
+    ];
+    const auditEntry = auditCalls[0][0];
+    expect(JSON.stringify(auditEntry)).not.toContain(meetingUrl);
+    expect(auditEntry.details).toEqual({ meetingUrlChanged: true });
   });
 });

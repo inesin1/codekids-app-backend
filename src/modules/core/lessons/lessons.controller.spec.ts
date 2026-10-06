@@ -13,9 +13,11 @@ describe('LessonsController student home', () => {
       {} as never,
     );
 
-    expect(
-      Reflect.getMetadata(ROLES_KEY, LessonsController.prototype.studentHome),
-    ).toEqual([Role.STUDENT]);
+    const studentHome = Object.getOwnPropertyDescriptor(
+      LessonsController.prototype,
+      'studentHome',
+    )?.value as LessonsController['studentHome'];
+    expect(Reflect.getMetadata(ROLES_KEY, studentHome)).toEqual([Role.STUDENT]);
     await controller.studentHome({ user: { id: 'student-1' } } as never);
 
     expect(findStudentHome).toHaveBeenCalledWith('student-1');
