@@ -85,8 +85,8 @@ describe('bounded list query validation', () => {
       to: '2026-10-01',
     });
     const payout = plainToInstance(FindPayoutsDto, {
-      periodStart: '2026-10-02',
-      periodEnd: '2026-10-01',
+      createdAtFrom: '2026-10-02',
+      createdAtTo: '2026-10-01',
     });
     expect(validateSync(audit).length).toBeGreaterThan(0);
     expect(validateSync(payout).length).toBeGreaterThan(0);

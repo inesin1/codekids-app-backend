@@ -328,7 +328,7 @@ describe('LessonsService', () => {
           studentId: 'student-1',
           status: LessonStatus.COMPLETED,
         },
-        orderBy: [{ scheduledAt: 'desc' }],
+        orderBy: [{ scheduledAt: 'desc' }, { id: 'desc' }],
       }),
     );
   });
