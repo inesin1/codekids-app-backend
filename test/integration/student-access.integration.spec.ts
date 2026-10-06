@@ -37,6 +37,7 @@ describe('student-owned portal resources with PostgreSQL', () => {
   let enrollmentId: string;
   let firstLessonId: string;
   let secondLessonId: string;
+  let studentHomeLessonId: string | undefined;
   let scheduledRequestLessonId: string | undefined;
   let materialId: string;
   let audit: { log: jest.Mock; record: jest.Mock };
@@ -60,6 +61,7 @@ describe('student-owned portal resources with PostgreSQL', () => {
 
   beforeEach(async () => {
     scheduledRequestLessonId = undefined;
+    studentHomeLessonId = undefined;
     serviceCreatedStudentIds = [];
     const suffix = randomUUID();
     teacherId = `integration-teacher-${suffix}`;
@@ -123,6 +125,7 @@ describe('student-owned portal resources with PostgreSQL', () => {
         courseId,
         lessonPrice: '25.00',
         teacherRate: '12.00',
+        meetingUrl: 'https://meet.example.test/shared-class',
       },
     });
     const secondEnrollmentId = `integration-enrollment-b-${suffix}`;
@@ -221,6 +224,7 @@ describe('student-owned portal resources with PostgreSQL', () => {
   afterEach(async () => {
     const lessonIds = [firstLessonId, secondLessonId];
     if (scheduledRequestLessonId) lessonIds.push(scheduledRequestLessonId);
+    if (studentHomeLessonId) lessonIds.push(studentHomeLessonId);
     await prisma.rescheduleRequest.deleteMany({
       where: { lessonId: { in: lessonIds } },
     });
@@ -275,6 +279,46 @@ describe('student-owned portal resources with PostgreSQL', () => {
     const secondActor = { id: secondStudentId, roles: [Role.STUDENT] };
     const request = (actor: { id: string; roles: Role[] }) =>
       ({ user: actor }) as unknown as Express.Request;
+
+    const meetingUrlOverride = 'https://meet.example.test/single-lesson';
+    studentHomeLessonId = `integration-home-lesson-${randomUUID()}`;
+    await prisma.lesson.create({
+      data: {
+        id: studentHomeLessonId,
+        enrollmentId,
+        teacherId,
+        studentId: firstStudentId,
+        scheduledAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        meetingUrlOverride,
+      },
+    });
+    const savedEnrollment = await prisma.enrollment.findUniqueOrThrow({
+      where: { id: enrollmentId },
+    });
+    expect(savedEnrollment.meetingUrl).toBe(
+      'https://meet.example.test/shared-class',
+    );
+    await prisma.lesson.update({
+      where: { id: firstLessonId },
+      data: { scheduledAt: new Date('2020-01-01T10:00:00.000Z') },
+    });
+    const firstHome = await lessonsController.studentHome(request(firstActor));
+    await prisma.lesson.update({
+      where: { id: firstLessonId },
+      data: { scheduledAt: new Date('2026-10-01T10:00:00.000Z') },
+    });
+    expect(firstHome.nextLesson?.id).toBe(studentHomeLessonId);
+    expect(firstHome.nextLesson?.meetingUrlOverride).toBe(meetingUrlOverride);
+    expect(firstHome.nextLesson?.enrollment.meetingUrl).toBe(
+      savedEnrollment.meetingUrl,
+    );
+    expect(firstHome.latestCompletedLesson?.id).toBe(firstLessonId);
+    expect(firstHome.latestCompletedLesson?.report?.extraNotes).toBeNull();
+    const secondHome = await lessonsController.studentHome(
+      request(secondActor),
+    );
+    expect(secondHome.nextLesson).toBeNull();
+    expect(secondHome.latestCompletedLesson?.id).toBe(secondLessonId);
 
     const firstLessons = await lessonsController.findAll(request(firstActor), {
       dateFrom: '2026-10-01',

@@ -167,12 +167,16 @@ export class EnrollmentsService {
         data: dto,
         include: includeProfiles,
       });
+      const { meetingUrl, ...auditDetails } = dto;
       await this.audit.record(
         {
           action: 'enrollment.updated',
           entityType: 'Enrollment',
           entityId: id,
-          details: { ...dto },
+          details: {
+            ...auditDetails,
+            ...(meetingUrl !== undefined && { meetingUrlChanged: true }),
+          },
         },
         tx,
       );

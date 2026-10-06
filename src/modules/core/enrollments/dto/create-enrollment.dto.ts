@@ -1,4 +1,11 @@
-import { IsNumber, IsPositive, IsString } from 'class-validator';
+import {
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsString,
+  IsUrl,
+  MaxLength,
+} from 'class-validator';
 
 export class CreateEnrollmentDto {
   @IsString()
@@ -17,4 +24,9 @@ export class CreateEnrollmentDto {
   @IsNumber()
   @IsPositive()
   teacherRate: number;
+
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @MaxLength(2048)
+  meetingUrl?: string | null;
 }

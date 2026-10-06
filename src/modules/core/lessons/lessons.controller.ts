@@ -60,6 +60,12 @@ export class LessonsController {
     return this.lessonsService.findAll(query, scope);
   }
 
+  @Roles(Role.STUDENT)
+  @Get('student-home')
+  studentHome(@Req() req: Express.Request) {
+    return this.lessonsService.findStudentHome(req.user!.id);
+  }
+
   @Get(':id')
   findById(@Req() req: Express.Request, @Param('id') id: string) {
     const scope = this.resolveScope(req.user!);

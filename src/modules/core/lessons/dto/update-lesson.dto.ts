@@ -3,6 +3,8 @@ import {
   IsInt,
   IsNumber,
   IsOptional,
+  IsUrl,
+  MaxLength,
   Min,
 } from 'class-validator';
 
@@ -10,6 +12,11 @@ export class UpdateLessonDto {
   @IsOptional()
   @IsDateString()
   scheduledAt?: string;
+
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @MaxLength(2048)
+  meetingUrlOverride?: string | null;
 
   @IsOptional()
   @IsInt()

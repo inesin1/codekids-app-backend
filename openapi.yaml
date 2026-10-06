@@ -708,6 +708,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaginatedLessonList'
 
+  /lessons/student-home:
+    get:
+      tags: [Lessons]
+      summary: Get the authenticated student’s home lessons
+      description: 'Roles: STUDENT. Returns the next scheduled lesson and latest completed lesson across the student’s history.'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentHomeLessons'
+
   /lessons/{id}:
     get:
       tags: [Lessons]
@@ -721,6 +734,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Lesson'
+    patch:
+      tags: [Lessons]
+      summary: Update a scheduled lesson
+      description: 'Roles: ADMIN, MANAGER. Send meetingUrlOverride as null to inherit the enrollment link.'
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLessonDto'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lesson'
+        '400':
+          description: Lesson is not in SCHEDULED status or the URL is invalid
 
   /lessons/{id}/complete:
     post:
@@ -1744,7 +1778,8 @@ components:
         completedLessonCount: { type: integer, minimum: 0 }
         lessonRevenue: { type: string, description: Exact Decimal string }
         teacherAccrued: { type: string, description: Exact Decimal string }
-        topUps: { type: string, nullable: true, description: Exact Decimal string }
+        topUps:
+          { type: string, nullable: true, description: Exact Decimal string }
 
     PayoutsAnalyticsSummary:
       type: object
@@ -1757,14 +1792,29 @@ components:
 
     LessonAnalyticsRow:
       type: object
-      required: [id, scheduledAt, completedAt, durationMinutes, price, teacherRate, bonusAmount, teacherId, teacherName, studentId, studentName, courseName]
+      required:
+        [
+          id,
+          scheduledAt,
+          completedAt,
+          durationMinutes,
+          price,
+          teacherRate,
+          bonusAmount,
+          teacherId,
+          teacherName,
+          studentId,
+          studentName,
+          courseName,
+        ]
       properties:
         id: { type: string }
         scheduledAt: { type: string, format: date-time }
         completedAt: { type: string, format: date-time }
         durationMinutes: { type: integer }
         price: { type: string, description: Exact Decimal string }
-        teacherRate: { type: string, nullable: true, description: Exact Decimal string }
+        teacherRate:
+          { type: string, nullable: true, description: Exact Decimal string }
         bonusAmount: { type: string, description: Exact Decimal string }
         teacherId: { type: string }
         teacherName: { type: string }
@@ -1774,7 +1824,19 @@ components:
 
     PayoutAnalyticsRow:
       type: object
-      required: [id, teacherId, teacherName, periodStart, periodEnd, basePay, bonusPay, totalPay, status, paidAt]
+      required:
+        [
+          id,
+          teacherId,
+          teacherName,
+          periodStart,
+          periodEnd,
+          basePay,
+          bonusPay,
+          totalPay,
+          status,
+          paidAt,
+        ]
       properties:
         id: { type: string }
         teacherId: { type: string }
@@ -2170,6 +2232,13 @@ components:
           type: number
           minimum: 0
           exclusiveMinimum: true
+        meetingUrl:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+          nullable: true
+          description: HTTPS link used by lessons in this enrollment.
 
     UpdateEnrollmentDto:
       type: object
@@ -2184,6 +2253,12 @@ components:
           exclusiveMinimum: true
         isActive:
           type: boolean
+        meetingUrl:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+          nullable: true
 
     Enrollment:
       type: object
@@ -2200,6 +2275,11 @@ components:
         teacherRate:
           type: string
           description: Decimal
+        meetingUrl:
+          type: string
+          format: uri
+          pattern: '^https://'
+          nullable: true
         isActive:
           type: boolean
         createdAt:
@@ -2237,6 +2317,34 @@ components:
         teacherRate:
           type: number
           minimum: 0
+        meetingUrlOverride:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+          nullable: true
+
+    UpdateLessonDto:
+      type: object
+      properties:
+        scheduledAt:
+          type: string
+          format: date-time
+        durationMinutes:
+          type: integer
+          minimum: 15
+        price:
+          type: number
+          minimum: 0
+        teacherRate:
+          type: number
+          minimum: 0
+        meetingUrlOverride:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+          nullable: true
 
     GenerateLessonsDto:
       type: object
@@ -2279,6 +2387,11 @@ components:
         scheduledAt:
           type: string
           format: date-time
+        meetingUrlOverride:
+          type: string
+          format: uri
+          pattern: '^https://'
+          nullable: true
         durationMinutes:
           type: integer
         status:
@@ -2302,6 +2415,20 @@ components:
           $ref: '#/components/schemas/ProfileWithUser'
         student:
           $ref: '#/components/schemas/ProfileWithUser'
+        enrollment:
+          type: object
+          properties:
+            id:
+              type: string
+            courseId:
+              type: string
+            meetingUrl:
+              type: string
+              format: uri
+              pattern: '^https://'
+              nullable: true
+            course:
+              $ref: '#/components/schemas/Course'
         report:
           $ref: '#/components/schemas/LessonReport'
         materials:
@@ -2314,6 +2441,21 @@ components:
         updatedAt:
           type: string
           format: date-time
+
+    StudentHomeLessons:
+      type: object
+      required: [nextLesson, latestCompletedLesson]
+      properties:
+        nextLesson:
+          type: object
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Lesson'
+        latestCompletedLesson:
+          type: object
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Lesson'
 
     # ── Schedule Template DTOs ────────────────────────────────────────────────
     ScheduleTemplateSlotInput:
@@ -2602,7 +2744,17 @@ components:
 
     PayoutPreview:
       type: object
-      required: [teacherId, periodStart, periodEnd, lessonCount, basePay, bonusPay, totalPay, previewToken]
+      required:
+        [
+          teacherId,
+          periodStart,
+          periodEnd,
+          lessonCount,
+          basePay,
+          bonusPay,
+          totalPay,
+          previewToken,
+        ]
       properties:
         teacherId:
           type: string

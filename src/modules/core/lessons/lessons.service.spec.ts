@@ -38,6 +38,7 @@ describe('LessonsService', () => {
       create: jest.Mock;
       createMany: jest.Mock;
       findMany: jest.Mock;
+      findFirst: jest.Mock;
     };
     enrollment: { findUniqueOrThrow: jest.Mock };
     studentProfile: {
@@ -51,6 +52,7 @@ describe('LessonsService', () => {
   };
   let prisma: {
     $transaction: jest.Mock;
+    lesson: { findFirst: jest.Mock };
   };
   let audit: { record: jest.Mock };
   let notifier: {
@@ -92,6 +94,7 @@ describe('LessonsService', () => {
       $transaction: jest.fn((callback: (db: typeof tx) => unknown) =>
         callback(tx),
       ),
+      lesson: { findFirst: jest.fn() },
     };
     audit = { record: jest.fn().mockResolvedValue(undefined) };
     notifier = {
@@ -286,12 +289,57 @@ describe('LessonsService', () => {
     });
   });
 
+  it('returns the student’s next and latest completed lessons without internal notes', async () => {
+    const nextLesson = {
+      ...scheduledLesson,
+      report: { extraNotes: 'staff only' },
+    };
+    const latestCompletedLesson = {
+      ...scheduledLesson,
+      id: 'old-lesson',
+      status: LessonStatus.COMPLETED,
+      scheduledAt: new Date('2020-01-01T10:00:00.000Z'),
+      report: { extraNotes: 'staff only' },
+    };
+    prisma.lesson.findFirst
+      .mockResolvedValueOnce(nextLesson)
+      .mockResolvedValueOnce(latestCompletedLesson);
+
+    const result = await service.findStudentHome('student-1');
+
+    expect(result.nextLesson?.id).toBe('l1');
+    expect(result.latestCompletedLesson?.id).toBe('old-lesson');
+    expect(result.nextLesson?.report?.extraNotes).toBeNull();
+    expect(result.latestCompletedLesson?.report?.extraNotes).toBeNull();
+    const queries = prisma.lesson.findFirst.mock.calls.map(([query]) => query);
+    expect(queries[0].where).toEqual({
+      studentId: 'student-1',
+      status: LessonStatus.SCHEDULED,
+      scheduledAt: { gte: expect.any(Date) },
+    });
+    expect(queries[1].where).toEqual({
+      studentId: 'student-1',
+      status: LessonStatus.COMPLETED,
+    });
+    expect(queries[1].orderBy[0]).toEqual({ scheduledAt: 'desc' });
+  });
+
+  it('returns null home lessons when the student has no matching records', async () => {
+    prisma.lesson.findFirst.mockResolvedValue(null);
+
+    await expect(service.findStudentHome('student-1')).resolves.toEqual({
+      nextLesson: null,
+      latestCompletedLesson: null,
+    });
+  });
+
   it('copies zero-valued financial snapshots to a rescheduled lesson', async () => {
     tx.lesson.updateMany
       .mockResolvedValueOnce({ count: 1 })
       .mockResolvedValueOnce({ count: 1 });
     tx.lesson.findUnique.mockResolvedValue({
       ...scheduledLesson,
+      meetingUrlOverride: 'https://meet.example.com/lesson',
       price: new Prisma.Decimal(0),
       teacherRate: new Prisma.Decimal(0),
     });
@@ -309,10 +357,14 @@ describe('LessonsService', () => {
       data: {
         price: Prisma.Decimal;
         teacherRate: Prisma.Decimal;
+        meetingUrlOverride: string;
       };
     }>(tx.lesson.create).data;
     expect(newLesson.price.toString()).toBe('0');
     expect(newLesson.teacherRate.toString()).toBe('0');
+    expect(newLesson.meetingUrlOverride).toBe(
+      'https://meet.example.com/lesson',
+    );
     expect(notifier.lessonRescheduled).toHaveBeenCalledWith(
       'l1',
       scheduledLesson.scheduledAt,
@@ -328,5 +380,25 @@ describe('LessonsService', () => {
       BadRequestException,
     );
     expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('stores lesson link overrides without writing their value to the audit log', async () => {
+    const meetingUrlOverride = 'https://meet.example.com/lesson';
+    tx.lesson.findUniqueOrThrow.mockResolvedValue(scheduledLesson);
+
+    await service.update('l1', { meetingUrlOverride });
+
+    expect(tx.lesson.updateMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { id: 'l1', status: LessonStatus.SCHEDULED },
+        data: { meetingUrlOverride },
+      }),
+    );
+    expect(JSON.stringify(audit.record.mock.calls[0][0])).not.toContain(
+      meetingUrlOverride,
+    );
+    expect(audit.record.mock.calls[0][0].details).toEqual({
+      meetingUrlOverrideChanged: true,
+    });
   });
 });

@@ -42,7 +42,9 @@ const lessonInclude = {
       user: { omit: { password: true } },
     },
   },
-  enrollment: { select: { id: true, courseId: true, course: true } },
+  enrollment: {
+    select: { id: true, courseId: true, course: true, meetingUrl: true },
+  },
   report: true,
   materials: {
     select: {
@@ -79,6 +81,7 @@ export class LessonsService {
           studentId: enrollment.studentId,
           scheduledAt: new Date(dto.scheduledAt),
           durationMinutes: dto.durationMinutes,
+          meetingUrlOverride: dto.meetingUrlOverride,
           price: dto.price != null ? new Prisma.Decimal(dto.price) : undefined,
           teacherRate:
             dto.teacherRate != null
@@ -280,6 +283,32 @@ export class LessonsService {
       teacherId: filters.teacherId,
       studentId: filters.studentId,
     });
+  }
+
+  async findStudentHome(studentId: string) {
+    const now = new Date();
+    const [nextLesson, latestCompletedLesson] = await Promise.all([
+      this.prisma.lesson.findFirst({
+        where: {
+          studentId,
+          status: LessonStatus.SCHEDULED,
+          scheduledAt: { gte: now },
+        },
+        include: lessonInclude,
+        orderBy: [{ scheduledAt: 'asc' }, { id: 'asc' }],
+      }),
+      this.prisma.lesson.findFirst({
+        where: { studentId, status: LessonStatus.COMPLETED },
+        include: lessonInclude,
+        orderBy: [{ scheduledAt: 'desc' }, { id: 'desc' }],
+      }),
+    ]);
+    return {
+      nextLesson: nextLesson ? this.withoutInternalNotes(nextLesson) : null,
+      latestCompletedLesson: latestCompletedLesson
+        ? this.withoutInternalNotes(latestCompletedLesson)
+        : null,
+    };
   }
 
   async findById(
@@ -495,6 +524,7 @@ export class LessonsService {
         studentId: lesson.studentId,
         scheduledAt: new Date(dto.newDate),
         durationMinutes: lesson.durationMinutes,
+        meetingUrlOverride: lesson.meetingUrlOverride,
         price: lesson.price,
         teacherRate: lesson.teacherRate,
       },
@@ -525,6 +555,9 @@ export class LessonsService {
         ...(dto.scheduledAt !== undefined && {
           scheduledAt: new Date(dto.scheduledAt),
         }),
+        ...(dto.meetingUrlOverride !== undefined && {
+          meetingUrlOverride: dto.meetingUrlOverride,
+        }),
         ...(dto.durationMinutes !== undefined && {
           durationMinutes: dto.durationMinutes,
         }),
@@ -546,12 +579,18 @@ export class LessonsService {
         where: { id },
         include: lessonInclude,
       });
+      const { meetingUrlOverride, ...auditDetails } = dto;
       await this.audit.record(
         {
           action: 'lesson.updated',
           entityType: 'Lesson',
           entityId: id,
-          details: dto,
+          details: {
+            ...auditDetails,
+            ...(meetingUrlOverride !== undefined && {
+              meetingUrlOverrideChanged: true,
+            }),
+          },
         },
         tx,
       );

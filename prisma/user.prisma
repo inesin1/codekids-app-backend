@@ -136,6 +136,8 @@ model Enrollment {
   // Индивидуальная ставка преподавателя за занятие (начисление)
   teacherRate Decimal @db.Decimal(10, 2)
 
+  meetingUrl String?
+
   isActive Boolean @default(true)
 
   createdAt DateTime @default(now())

@@ -112,6 +112,7 @@ model Lesson {
   // Дата и время
   scheduledAt     DateTime // точная дата и время начала
   durationMinutes Int      @default(60)
+  meetingUrlOverride String?
 
   status LessonStatus @default(SCHEDULED)
 
