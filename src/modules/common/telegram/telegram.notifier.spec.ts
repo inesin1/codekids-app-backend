@@ -218,7 +218,9 @@ describe('TelegramNotifier transactional events', () => {
       material: { findMany: jest.fn().mockResolvedValue([]) },
       telegramNotification: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    const enqueue = jest.fn().mockResolvedValue(undefined);
+    const enqueue = jest
+      .fn<Promise<void>, [event: TelegramOutboxEvent, db?: unknown]>()
+      .mockResolvedValue(undefined);
     const notifier = new TelegramNotifier(
       prisma as unknown as PrismaService,
       { enqueue } as unknown as TelegramService,
@@ -294,7 +296,9 @@ describe('TelegramNotifier transactional events', () => {
           ]),
       },
     };
-    const enqueue = jest.fn().mockResolvedValue(undefined);
+    const enqueue = jest
+      .fn<Promise<void>, [event: TelegramOutboxEvent, db?: unknown]>()
+      .mockResolvedValue(undefined);
     const notifier = new TelegramNotifier(
       prisma as unknown as PrismaService,
       { enqueue } as unknown as TelegramService,
