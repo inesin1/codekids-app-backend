@@ -974,9 +974,21 @@ export class TelegramService
       });
       if (isCurrentVersion && entityExists && claimed.entityId) {
         if (claimed.type === NotificationType.LESSON_REPORT) {
+          const pendingPart = await tx.telegramNotification.findFirst({
+            where: {
+              type: NotificationType.LESSON_REPORT,
+              entityId: claimed.entityId,
+              recipientKind: claimed.recipientKind,
+              recipientId: claimed.recipientId,
+              bindingVersion: claimed.bindingVersion,
+              canceledAt: null,
+              sentAt: null,
+            },
+            select: { id: true },
+          });
           await tx.lessonReport.updateMany({
             where: { id: claimed.entityId },
-            data: { sentToTelegram: true },
+            data: { sentToTelegram: !pendingPart },
           });
         } else if (claimed.type === NotificationType.RESCHEDULE_REQUEST) {
           await tx.rescheduleRequest.updateMany({

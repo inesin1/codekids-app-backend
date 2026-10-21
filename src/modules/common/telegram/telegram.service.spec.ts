@@ -397,33 +397,49 @@ describe('TelegramService durable queues', () => {
     expect(update.data).not.toHaveProperty('deliveredVersion');
   });
 
-  it('commits entity sent state with the current-version delivery acknowledgement', async () => {
-    const row = makeRow();
-    prisma.user.findUnique.mockResolvedValue({ isActive: true });
-    prisma.studentProfile.findUnique.mockResolvedValue({
-      telegramGroup: {
-        isActive: true,
-        telegramChatId: '-100',
-        bindingVersion: 1,
-      },
-    });
-    prisma.$queryRaw
-      .mockResolvedValueOnce([{ id: 'r1' }])
-      .mockResolvedValueOnce([]);
-    prisma.telegramNotification.findUnique.mockResolvedValue(row);
+  it.each([null, { id: 'remaining-part' }])(
+    'commits report sent state after checking remaining parts: %p',
+    async (pendingPart) => {
+      const row = makeRow();
+      prisma.user.findUnique.mockResolvedValue({ isActive: true });
+      prisma.studentProfile.findUnique.mockResolvedValue({
+        telegramGroup: {
+          isActive: true,
+          telegramChatId: '-100',
+          bindingVersion: 1,
+        },
+      });
+      prisma.$queryRaw
+        .mockResolvedValueOnce([{ id: 'r1' }])
+        .mockResolvedValueOnce([]);
+      prisma.telegramNotification.findUnique.mockResolvedValue(row);
+      prisma.telegramNotification.findFirst.mockResolvedValue(pendingPart);
 
-    await service.deliverOutboxRow(row);
+      await service.deliverOutboxRow(row);
 
-    const queries = prisma.$queryRaw.mock.calls.map(
-      ([query]) => (query as { sql: string }).sql,
-    );
-    expect(queries[0]).toContain('"lesson_reports"');
-    expect(queries[1]).toContain('"telegram_notifications"');
-    expect(prisma.lessonReport.updateMany).toHaveBeenCalledWith({
-      where: { id: 'r1' },
-      data: { sentToTelegram: true },
-    });
-  });
+      const queries = prisma.$queryRaw.mock.calls.map(
+        ([query]) => (query as { sql: string }).sql,
+      );
+      expect(queries[0]).toContain('"lesson_reports"');
+      expect(queries[1]).toContain('"telegram_notifications"');
+      expect(prisma.telegramNotification.findFirst).toHaveBeenCalledWith({
+        where: {
+          type: NotificationType.LESSON_REPORT,
+          entityId: 'r1',
+          recipientKind: TelegramRecipientKind.GROUP,
+          recipientId: 'student-1',
+          bindingVersion: 1,
+          canceledAt: null,
+          sentAt: null,
+        },
+        select: { id: true },
+      });
+      expect(prisma.lessonReport.updateMany).toHaveBeenCalledWith({
+        where: { id: 'r1' },
+        data: { sentToTelegram: !pendingPart },
+      });
+    },
+  );
 
   it('cancels lesson reminders after the lesson time or state changes', async () => {
     const row = makeRow({

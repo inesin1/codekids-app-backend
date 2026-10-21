@@ -17,7 +17,11 @@ const makeLesson = (id: string, scheduledAt: Date) => ({
   student: {
     userId: 'student-1',
     user: { firstName: 'Иван', lastName: 'Петров' },
-    telegramGroup: { telegramChatId: '-100', isActive: true },
+    telegramGroup: {
+      telegramChatId: '-100',
+      isActive: true,
+      bindingVersion: 1,
+    },
   },
   teacher: {
     userId: 'teacher-1',
@@ -154,6 +158,7 @@ describe('TelegramNotifier transactional events', () => {
           lesson,
         }),
       },
+      telegramNotification: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const enqueue = jest
       .fn<Promise<void>, [event: TelegramOutboxEvent, db?: unknown]>()
@@ -176,7 +181,7 @@ describe('TelegramNotifier transactional events', () => {
     expect(reportEvent?.type).toBe(NotificationType.LESSON_REPORT);
     expect(reportEvent?.entityId).toBe('r1');
     expect(reportEvent?.text).toContain('<b>Тема занятия:</b> Циклы');
-    expect(reportEvent?.text).toContain('<b>Домашнее задание:</b> Нет');
+    expect(reportEvent?.text).not.toContain('Домашнее задание');
     expect(reportEvent?.text).not.toContain('Следующий шаг');
 
     const materialEvent = telegram.enqueue.mock.calls[1]?.[0];
@@ -187,5 +192,123 @@ describe('TelegramNotifier transactional events', () => {
     expect(materialEvent?.type).toBe(NotificationType.MATERIAL_ADDED);
     expect(materialEvent?.entityId).toBe('m1');
     expect(materialEvent?.text).toContain('Вложение к отчёту');
+  });
+
+  it('includes assigned homework without a yes prefix and preserves long fields across Telegram messages', async () => {
+    const longCovered = `${'Практиковали & циклы 😀 '.repeat(500)}конец`;
+    const longValue = (label: string) =>
+      `${label}-START${'x'.repeat(600)}${label}-END`;
+    const longTopic = longValue('topic');
+    const longResults = longValue('results');
+    const longComment = longValue('comment');
+    const lesson = makeLesson('l1', new Date('2026-09-18T09:00:00Z'));
+    const prisma = {
+      lessonReport: {
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          id: 'r1',
+          topic: longTopic,
+          covered: longCovered,
+          results: longResults,
+          homework: '  Решить задачу  ',
+          parentComment: longComment,
+          updatedAt: new Date(),
+          lesson,
+        }),
+      },
+      material: { findMany: jest.fn().mockResolvedValue([]) },
+      telegramNotification: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const enqueue = jest.fn().mockResolvedValue(undefined);
+    const notifier = new TelegramNotifier(
+      prisma as unknown as PrismaService,
+      { enqueue } as unknown as TelegramService,
+      { get: () => undefined } as unknown as ConfigService,
+    );
+
+    await notifier.queueReport('r1');
+
+    const reportEvents = enqueue.mock.calls.map(([event]) => event);
+    expect(reportEvents.length).toBeGreaterThan(1);
+    expect(reportEvents.map((event) => event.occurrenceKey)).toEqual([
+      'report',
+      ...reportEvents.slice(1).map((_, index) => `report:${index + 1}`),
+    ]);
+    expect(reportEvents.every((event) => event.text.length <= 4096)).toBe(true);
+    for (const value of [longTopic, longResults, longComment]) {
+      expect(
+        reportEvents.some(({ text }) => text.includes(value.slice(0, 12))),
+      ).toBe(true);
+      expect(
+        reportEvents.some(({ text }) => text.includes(value.slice(-12))),
+      ).toBe(true);
+    }
+    expect(
+      reportEvents.some(({ text }) =>
+        text.includes('<b>Домашнее задание:</b> Решить задачу'),
+      ),
+    ).toBe(true);
+    expect(reportEvents.some(({ text }) => text.includes('Есть'))).toBe(false);
+    const coveredParts = reportEvents
+      .map(({ text }) => text)
+      .filter((text) => text.includes('<b>Что сделано на занятии:</b>'))
+      .map(
+        (text) =>
+          text
+            .slice(
+              text.indexOf('<b>Что сделано на занятии:</b>') +
+                '<b>Что сделано на занятии:</b> '.length,
+            )
+            .split('\n\n<b>')[0],
+      );
+    expect(coveredParts.join('')).toBe(
+      longCovered
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;'),
+    );
+  });
+
+  it('replaces obsolete report continuation messages when an edited report shrinks', async () => {
+    const lesson = makeLesson('l1', new Date('2026-09-18T09:00:00Z'));
+    const prisma = {
+      lessonReport: {
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          id: 'r1',
+          topic: 'Короткий отчёт',
+          covered: null,
+          results: null,
+          homework: null,
+          parentComment: null,
+          updatedAt: new Date(),
+          lesson,
+        }),
+      },
+      material: { findMany: jest.fn().mockResolvedValue([]) },
+      telegramNotification: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            { occurrenceKey: 'report:1' },
+            { occurrenceKey: 'report:2' },
+          ]),
+      },
+    };
+    const enqueue = jest.fn().mockResolvedValue(undefined);
+    const notifier = new TelegramNotifier(
+      prisma as unknown as PrismaService,
+      { enqueue } as unknown as TelegramService,
+      { get: () => undefined } as unknown as ConfigService,
+    );
+
+    await notifier.queueReport('r1', true);
+
+    expect(
+      enqueue.mock.calls.map(([event]) => [event.occurrenceKey, event.text]),
+    ).toEqual([
+      ['report', expect.stringContaining('Короткий отчёт')],
+      ['report:1', 'Отчёт обновлён, продолжение больше не требуется.'],
+      ['report:2', 'Отчёт обновлён, продолжение больше не требуется.'],
+    ]);
   });
 });

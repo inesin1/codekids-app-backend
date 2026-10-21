@@ -31,6 +31,9 @@ const lessonContext = {
 } as const;
 
 const MINUTE_MS = 60 * 1000;
+const TELEGRAM_MESSAGE_LIMIT = 4096;
+const REPORT_CONTINUATION_REPLACEMENT =
+  'Отчёт обновлён, продолжение больше не требуется.';
 
 // Окна напоминаний: за сутки (23-24ч) и за 15 минут до занятия
 const LESSON_REMINDERS = [
@@ -102,41 +105,84 @@ export class TelegramNotifier {
       ['Тема занятия', report.topic],
       ['Что сделано на занятии', report.covered],
       ['Успехи и сложности', report.results],
-      [
-        'Домашнее задание',
-        report.homework ? `Есть — ${report.homework}` : 'Нет',
-      ],
+      ['Домашнее задание', report.homework?.trim() || null],
       ['Дополнительная информация', report.parentComment],
     ];
-    const reportBody = fields
-      .filter(([, value]) => value)
-      .map(([label, value]) => `<b>${label}:</b> ${clip(value!, 500)}`)
-      .join('\n\n');
-    const text = [
+    const header = [
       '📝 <b>Отчёт по занятию</b>',
       `👤 <b>Ученик:</b> ${fullName(lesson.student.user)}`,
       `📚 <b>Курс:</b> ${esc(lesson.enrollment.course.name)}`,
       `🗓 <b>Дата:</b> ${formatDateTime(lesson.scheduledAt)} (МСК)`,
-      '',
-      reportBody,
       ...(edited
         ? ['', `✏️ <i>Изменён ${formatDateTime(report.updatedAt)}</i>`]
         : []),
     ].join('\n');
+    const messages = [header];
+    for (const [label, value] of fields) {
+      if (!value?.trim()) continue;
+      let remaining = Array.from(value);
+      while (remaining.length) {
+        const current = messages[messages.length - 1];
+        const prefix = `\n\n<b>${label}:</b> `;
+        const capacity =
+          TELEGRAM_MESSAGE_LIMIT - current.length - prefix.length;
+        let length = 0;
+        let escapedLength = 0;
+        while (length < remaining.length) {
+          const nextLength = esc(remaining[length]).length;
+          if (escapedLength + nextLength > capacity) break;
+          escapedLength += nextLength;
+          length++;
+        }
+        if (!length) {
+          messages.push('📝 <b>Отчёт по занятию (продолжение)</b>');
+          continue;
+        }
+        messages[messages.length - 1] +=
+          prefix + esc(remaining.slice(0, length).join(''));
+        remaining = remaining.slice(length);
+      }
+    }
 
-    await this.telegram.enqueue(
-      {
-        recipient: {
-          kind: TelegramRecipientKind.GROUP,
-          id: lesson.student.userId,
-        },
-        occurrenceKey: 'report',
-        type: NotificationType.LESSON_REPORT,
-        entityId: reportId,
-        text,
+    const event = {
+      recipient: {
+        kind: TelegramRecipientKind.GROUP,
+        id: lesson.student.userId,
       },
-      db,
+      type: NotificationType.LESSON_REPORT,
+      entityId: reportId,
+    } as const;
+    for (const [index, text] of messages.entries()) {
+      await this.telegram.enqueue(
+        { ...event, occurrenceKey: index ? `report:${index}` : 'report', text },
+        db,
+      );
+    }
+
+    const previousContinuations = lesson.student.telegramGroup
+      ? await db.telegramNotification.findMany({
+          where: {
+            entityId: reportId,
+            type: NotificationType.LESSON_REPORT,
+            recipientKind: TelegramRecipientKind.GROUP,
+            recipientId: lesson.student.userId,
+            bindingVersion: lesson.student.telegramGroup.bindingVersion,
+            occurrenceKey: { startsWith: 'report:' },
+          },
+          select: { occurrenceKey: true },
+          distinct: ['occurrenceKey'],
+        })
+      : [];
+    const activeKeys = new Set(
+      messages.slice(1).map((_, index) => `report:${index + 1}`),
     );
+    for (const { occurrenceKey } of previousContinuations) {
+      if (activeKeys.has(occurrenceKey)) continue;
+      await this.telegram.enqueue(
+        { ...event, occurrenceKey, text: REPORT_CONTINUATION_REPLACEMENT },
+        db,
+      );
+    }
 
     const attachments = await db.material.findMany({
       where: { reportId: report.id, sentToTelegram: false },
